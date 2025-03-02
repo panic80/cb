@@ -24,17 +24,92 @@ app.use((req, res, next) => {
 
 // Process content with enhanced formatting and semantic structure preservation
 const processContent = (html) => {
-  const $ = cheerio.load(html);
-  // Remove unwanted elements such as scripts, styles, headers, footers, and navigation
-  $('script, style, header, footer, nav').remove();
-  const text = $('body').text();
-  // Clean and format content while preserving newlines
-  return text
-    .replace(/\s+/g, ' ')
-    .replace(/(\d+\.\d+\.\d+)/g, '\n$1')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/([.!?])\s+/g, '$1\n')
-    .trim();
+  try {
+    console.log('Starting HTML processing with cheerio...');
+    
+    // Load HTML with cheerio
+    const $ = cheerio.load(html, {
+      decodeEntities: true,
+      xmlMode: false
+    });
+    
+    console.log('Cheerio loaded HTML successfully');
+    
+    // Debug: Count elements before removal
+    const scriptCount = $('script').length;
+    const styleCount = $('style').length;
+    const headerCount = $('header').length;
+    const footerCount = $('footer').length;
+    const navCount = $('nav').length;
+    
+    console.log(`Element counts before removal: scripts=${scriptCount}, styles=${styleCount}, headers=${headerCount}, footers=${footerCount}, navs=${navCount}`);
+    
+    // Remove unwanted elements such as scripts, styles, headers, footers, and navigation
+    $('script, style, header, footer, nav').remove();
+    
+    // Focus on main content areas
+    let mainContent = '';
+    
+    // Try different content selectors that might contain the main content
+    const contentSelectors = [
+      'main', 
+      'article', 
+      '.content',
+      '#content',
+      '.main-content',
+      '.article-content',
+      'div[role="main"]'
+    ];
+    
+    for (const selector of contentSelectors) {
+      if ($(selector).length > 0) {
+        console.log(`Found content using selector: ${selector}`);
+        mainContent = $(selector).text();
+        break;
+      }
+    }
+    
+    // If we couldn't find content in common content areas, fall back to body
+    if (!mainContent || mainContent.trim().length < 100) {
+      console.log('Content selectors did not yield sufficient content, falling back to body');
+      mainContent = $('body').text();
+    }
+    
+    console.log(`Raw extracted text length: ${mainContent.length} characters`);
+    
+    // Clean and format content while preserving newlines and semantic structure
+    const processedText = mainContent
+      // Normalize whitespace
+      .replace(/\s+/g, ' ')
+      // Format section numbers
+      .replace(/(\d+\.\d+\.?\d*)(\s+)/g, '\n$1$2')
+      // Make sure section headings are on their own lines
+      .replace(/(SECTION|Chapter|CHAPTER|Part|PART)\s+(\d+)/gi, '\n$1 $2')
+      // Fix camelCase to space separated
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      // Ensure sentence boundaries have newlines
+      .replace(/([.!?])\s+/g, '$1\n')
+      // Final trim
+      .trim();
+    
+    console.log(`Processed text length: ${processedText.length} characters`);
+    
+    return processedText;
+  } catch (error) {
+    console.error('Error processing HTML content:', error);
+    // Return a simplified version as fallback
+    try {
+      // Simple regex-based approach as fallback
+      return html
+        .replace(/<[^>]*>/g, ' ') // Strip HTML tags
+        .replace(/\s+/g, ' ') // Normalize whitespace
+        .replace(/(\d+\.\d+\.?\d*)/g, '\n$1') // Format section numbers
+        .trim();
+    } catch (fallbackError) {
+      console.error('Even fallback processing failed:', fallbackError);
+      throw new Error('Content processing failed completely');
+    }
+  }
 };
 
 const PORT = process.env.PORT || 3001;
@@ -249,8 +324,15 @@ app.get('/api/travel-instructions', rateLimiter, async (req, res) => {
     let retryCount = 0;
     const startTime = Date.now();
 
+    // For debugging purposes
+    console.log(`Attempting to fetch travel instructions from Canada.ca website`);
+    console.log(`Current environment: ${process.env.NODE_ENV || 'not set'}`);
+    console.log(`Current retry count limits: ${MAX_RETRIES}`);
+    
+    // Try to fetch from the official source first
     while (retryCount < MAX_RETRIES) {
       try {
+        console.log(`Fetch attempt ${retryCount + 1}/${MAX_RETRIES} to Canada.ca`);
         response = await axios.get(
           'https://www.canada.ca/en/department-national-defence/services/benefits-military/pay-pension-benefits/benefits/canadian-forces-temporary-duty-travel-instructions.html',
           {
@@ -265,14 +347,44 @@ app.get('/api/travel-instructions', rateLimiter, async (req, res) => {
         );
         
         console.log(`Fetch succeeded after ${retryCount} retries, took ${Date.now() - startTime}ms`);
+        console.log(`Response status: ${response.status}, content length: ${response.data?.length || 'unknown'}`);
         break;
       } catch (error) {
         retryCount++;
         console.log(`Retry attempt ${retryCount} after error:`, error.message);
         
+        // Log detailed error information for debugging
+        console.error(`Detailed fetch error:`, {
+          message: error.message,
+          code: error.code,
+          isAxiosError: error.isAxiosError,
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data?.substring?.(0, 200) || 'No data'
+        });
+        
         if (retryCount === MAX_RETRIES) {
           console.error(`All ${MAX_RETRIES} retry attempts failed`);
-          throw error;
+          
+          // Even though we failed, we'll try a fallback source before throwing
+          try {
+            console.log('Trying fallback source: web.archive.org');
+            // Try an archived copy from the Internet Archive
+            response = await axios.get(
+              'https://web.archive.org/web/20230701000000/https://www.canada.ca/en/department-national-defence/services/benefits-military/pay-pension-benefits/benefits/canadian-forces-temporary-duty-travel-instructions.html',
+              {
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (compatible; TravelInstructionsBot/1.0)',
+                },
+                timeout: REQUEST_TIMEOUT * 2 // Give archive.org more time
+              }
+            );
+            console.log('Fallback source succeeded, using archived content');
+            break;
+          } catch (fallbackError) {
+            console.error('Fallback source also failed:', fallbackError.message);
+            throw error; // Throw the original error
+          }
         }
         
         // Exponential backoff with jitter
@@ -287,9 +399,38 @@ app.get('/api/travel-instructions', rateLimiter, async (req, res) => {
       throw new Error('Empty response received from source');
     }
     
+    console.log('Processing HTML content...');
+    const dataLength = response?.data?.length || 0;
+    console.log(`Raw response data length: ${dataLength} bytes`);
+    
+    // Take a sample of the HTML for debugging
+    if (typeof response.data === 'string') {
+      const sample = response.data.substring(0, 300);
+      console.log(`HTML sample: ${sample.replace(/\n/g, '\\n').replace(/\r/g, '\\r')}`);
+    }
+    
     const content = processContent(response.data);
+    console.log(`Processed content length: ${content?.length || 0} bytes`);
+    
+    // Log the first 500 characters of processed content for debugging
+    if (content) {
+      const contentSample = content.substring(0, 500);
+      console.log(`Processed content sample: ${contentSample.replace(/\n/g, '\\n')}`);
+    }
+    
     if (!content || content.trim().length < 100) {
       console.error('Processed content too short or empty:', content);
+      
+      // Create a more detailed failure record
+      const contentInfo = {
+        contentLength: content?.length || 0,
+        contentEmpty: !content,
+        firstChars: content?.substring(0, 50) || 'N/A',
+        responseStatus: response?.status,
+        responseType: response?.headers?.['content-type'] || 'unknown'
+      };
+      console.error('Content validation failed with details:', contentInfo);
+      
       throw new Error('Processed content validation failed');
     }
     
