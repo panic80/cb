@@ -2,7 +2,6 @@ import express from 'express';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { defaultTravelInstructions } from './travelData.js';
 const app = express();
 
 // Parse JSON request bodies with increased limit
@@ -120,6 +119,7 @@ const CACHE_TTL = 3600000; // 1 hour in milliseconds
 const CLEANUP_INTERVAL = 300000; // 5 minutes in milliseconds
 const MAX_RETRIES = 3;
 const REQUEST_TIMEOUT = 10000; // 10 seconds in milliseconds
+const RETRY_DELAY = 1000; // 1 second in milliseconds
 
 // Intelligent cache cleanup with logging and error handling
 setInterval(() => {
@@ -366,25 +366,9 @@ app.get('/api/travel-instructions', rateLimiter, async (req, res) => {
         if (retryCount === MAX_RETRIES) {
           console.error(`All ${MAX_RETRIES} retry attempts failed`);
           
-          // Even though we failed, we'll try a fallback source before throwing
-          try {
-            console.log('Trying fallback source: web.archive.org');
-            // Try an archived copy from the Internet Archive
-            response = await axios.get(
-              'https://web.archive.org/web/20230701000000/https://www.canada.ca/en/department-national-defence/services/benefits-military/pay-pension-benefits/benefits/canadian-forces-temporary-duty-travel-instructions.html',
-              {
-                headers: {
-                  'User-Agent': 'Mozilla/5.0 (compatible; TravelInstructionsBot/1.0)',
-                },
-                timeout: REQUEST_TIMEOUT * 2 // Give archive.org more time
-              }
-            );
-            console.log('Fallback source succeeded, using archived content');
-            break;
-          } catch (fallbackError) {
-            console.error('Fallback source also failed:', fallbackError.message);
-            throw error; // Throw the original error
-          }
+          // Throw the error - in production we should only use the official Canada.ca source
+          console.error('All retry attempts to official Canada.ca source failed');
+          throw error;
         }
         
         // Exponential backoff with jitter
