@@ -19,25 +19,35 @@ app.use((req, res, next) => {
 });
 
 // API routes first with enhanced error handling
-app.all('/api/travel-instructions*', (req, res) => {
-  try {
-    res.header('Content-Type', 'application/json');
-    res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.header('Pragma', 'no-cache');
-    res.header('Expires', '0');
-    res.json({
-      content: defaultTravelInstructions,
-      timestamp: new Date().toISOString()
-    });
-    console.log('Travel instructions API request served successfully');
-  } catch (error) {
-    console.error('Error serving travel instructions:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: 'Failed to retrieve travel instructions'
-    });
-  }
-});
+// In development mode, we use a local fallback
+// In production, we proxy to the proxy server
+const isDevelopment = process.env.NODE_ENV === 'development';
+
+if (isDevelopment) {
+  // In development, use local fallback for faster testing
+  app.all('/api/travel-instructions*', (req, res) => {
+    try {
+      res.header('Content-Type', 'application/json');
+      res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.header('Pragma', 'no-cache');
+      res.header('Expires', '0');
+      res.json({
+        content: defaultTravelInstructions,
+        timestamp: new Date().toISOString()
+      });
+      console.log('Travel instructions API request served successfully (dev fallback)');
+    } catch (error) {
+      console.error('Error serving travel instructions:', error);
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to retrieve travel instructions'
+      });
+    }
+  });
+} else {
+  // In production, proxy all API requests including travel-instructions
+  console.log('Production mode: Proxying travel instructions to proxy server');
+}
 
 // Serve the main landing page
 app.use(express.static(path.join(__dirname, '../public_html')));
@@ -46,12 +56,20 @@ app.use(express.static(path.join(__dirname, '../public_html')));
 app.use('/chatbot', express.static(path.join(__dirname, '../dist')));
 
 
-/* Proxy setup for the backend server (for all /api requests except /api/travel-instructions) */
-app.use('/api', createProxyMiddleware((pathname, req) => {
-  return !pathname.startsWith('/api/travel-instructions');
-}, {
+/* Proxy setup for the backend server */
+app.use('/api', createProxyMiddleware({
     target: 'http://localhost:3001',
     changeOrigin: true,
+    logLevel: 'debug',
+    onProxyReq: (proxyReq, req, res) => {
+        console.log(`Proxying request to: ${req.method} ${req.path}`);
+    },
+    onProxyRes: (proxyRes, req, res) => {
+        console.log(`Proxy response from: ${req.method} ${req.path}, status: ${proxyRes.statusCode}`);
+    },
+    onError: (err, req, res) => {
+        console.error('Proxy error:', err);
+    }
 }));
 
 // Handle React app routes
