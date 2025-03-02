@@ -1,30 +1,24 @@
-# Development Guide
+# Dev Environment Guide
 
 ## Commands
-- `npm run dev` - Start development server with proxy (port 3001)
-- `npm run build` - Build for production
+- `npm run dev` - Start development server
+- `npm run build` - Production build
 - `npm run test` - Run all tests
 - `npm run test:watch` - Run tests in watch mode
-- `npm test src/path/to/file.test.jsx` - Run specific test file
-- `npm run deploy` - Deploy using PM2
+- `npx vitest path/to/test.js` - Run single test file
+- `npx vitest -t "test name pattern"` - Run tests matching pattern
 
 ## Code Style
-- React functional components with TypeScript (React.FC<Props>)
-- Component props defined with TypeScript interfaces
-- camelCase for functions/variables, PascalCase for components
-- Small, focused components with clear responsibility
-- CSS modules or styled components for styling
-- Default values in destructuring
+- **Imports**: React first, third-party libs, then local modules
+- **Components**: Functional with TypeScript (React.FC<Props>)
+- **Naming**: PascalCase (components), camelCase (functions/variables)
+- **Styling**: Mix of CSS modules and Tailwind
+- **Types**: Explicit interfaces for all props and API responses
+- **Error Handling**: Try/catch with fallbacks, comprehensive logging
+- **Testing**: Vitest + React Testing Library
 
-## Project Structure
-- `/src/components` - UI components
-- `/src/api` - API integrations
-- `/src/utils` - Utility functions
-- `/src/new-chat-interface` - New modular chat implementation
-- `/server` - Backend Express server
-
-## Tech Stack
-- React 18 + TypeScript + Vite
-- Tailwind CSS
-- Vitest for testing
-- Express backend
+## Architecture
+- React frontend with TypeScript
+- API communication in src/api
+- New chat interface in src/new-chat-interface
+- Component organization by feature/use case
