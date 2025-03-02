@@ -76,7 +76,7 @@ const processContent = (html) => {
     
     console.log(`Raw extracted text length: ${mainContent.length} characters`);
     
-    // Clean and format content while preserving newlines and semantic structure
+    // Clean and format content while preserving newlines, semantic structure, and timing details
     const processedText = mainContent
       // Normalize whitespace
       .replace(/\s+/g, ' ')
@@ -86,6 +86,10 @@ const processContent = (html) => {
       .replace(/(SECTION|Chapter|CHAPTER|Part|PART)\s+(\d+)/gi, '\n$1 $2')
       // Fix camelCase to space separated
       .replace(/([a-z])([A-Z])/g, '$1 $2')
+      // Preserve meal timing windows
+      .replace(/([Ll]unch).+?(\d{1,2}[:\.]\d{2}).+?(\d{1,2}[:\.]\d{2})/g, (match, meal, start, end) => {
+        return `${meal} may be claimed when duty travel extends through the period of ${start} to ${end}`;
+      })
       // Ensure sentence boundaries have newlines
       .replace(/([.!?])\s+/g, '$1\n')
       // Final trim
@@ -366,9 +370,9 @@ app.get('/api/travel-instructions', rateLimiter, async (req, res) => {
         if (retryCount === MAX_RETRIES) {
           console.error(`All ${MAX_RETRIES} retry attempts failed`);
           
-          // Throw the error - in production we should only use the official Canada.ca source
           console.error('All retry attempts to official Canada.ca source failed');
-          throw error;
+          // Don't use default content, let the error propagate
+          throw new Error('Failed to retrieve travel instructions from Canada.ca after multiple attempts');
         }
         
         // Exponential backoff with jitter
@@ -415,7 +419,8 @@ app.get('/api/travel-instructions', rateLimiter, async (req, res) => {
       };
       console.error('Content validation failed with details:', contentInfo);
       
-      throw new Error('Processed content validation failed');
+      // Don't use default content, throw an error
+      throw new Error('Processed content validation failed - insufficient content length');
     }
     
     console.log('Content processed successfully, length:', content.length);
