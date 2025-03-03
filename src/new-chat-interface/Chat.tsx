@@ -78,30 +78,34 @@ const ChatComponent: React.FC<ChatProps> = ({
       }
     }
 
-    // If apiEndpoint is provided, send message to API
-    if (apiEndpoint) {
+    // Only use apiEndpoint if onMessageSent is not provided
+    if (apiEndpoint && !onMessageSent) {
       setIsLoading(true);
-
       try {
-        // Simulate API call - replace with actual implementation
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const response = await fetch(apiEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ message: content }),
+        });
 
-        // Create mock response - replace with actual API response handling
+        if (!response.ok) {
+          throw new Error('API request failed');
+        }
+
+        const data = await response.json();
         const assistantMessage: Message = {
           id: generateId(),
-          content: `This is a mock response to: "${content}"`,
+          content: data.response || 'No response received',
           sender: 'assistant',
           timestamp: Date.now(),
           status: 'delivered',
         };
 
-        // Add assistant message to chat
         setMessages((prev) => [...prev, assistantMessage]);
       } catch (error) {
-        // Handle error
         console.error('Error sending message:', error);
-        
-        // Add error message
         const errorMessage: Message = {
           id: generateId(),
           content: 'Sorry, an error occurred while sending your message. Please try again.',
@@ -111,8 +115,6 @@ const ChatComponent: React.FC<ChatProps> = ({
         };
         
         setMessages((prev) => [...prev, errorMessage]);
-        
-        // Call onError callback if provided
         if (onError && error instanceof Error) {
           onError(error);
         }

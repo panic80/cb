@@ -98,36 +98,54 @@ const Chat: React.FC = () => {
       
       try {
         // Send message to Gemini API if travel instructions are loaded
-        if (travelInstructions) {
-          // Type assertion to handle the TypeScript error
-          const response = await sendToGemini(input, isSimplifyMode, 'models/gemini-2.0-flash-001', travelInstructions as any);
-          
-          // Create bot message with response
-          const botMessage: Message = {
+        if (!travelInstructions) {
+          const fallbackMessage: Message = {
             id: generateMessageId(),
             sender: 'bot',
-            text: response.text,
+            text: "I'm sorry, I couldn't access the travel instructions. Please try again later.",
             timestamp: Date.now(),
-            sources: response.sources,
-            simplified: isSimplifyMode,
-            status: 'delivered'
+            status: 'error'
           };
-          
-          setMessages(prev => [...prev, botMessage]);
-        } else {
-          // Fallback if travel instructions aren't loaded
-          setTimeout(() => {
-            const fallbackMessage: Message = {
-              id: generateMessageId(),
-              sender: 'bot',
-              text: "I'm sorry, I couldn't access the travel instructions. Please try again later.",
-              timestamp: Date.now(),
-              status: 'error'
-            };
-            
-            setMessages(prev => [...prev, fallbackMessage]);
-          }, 1000);
+          setMessages(prev => [...prev, fallbackMessage]);
+          return;
         }
+
+        let response;
+        try {
+          response = await sendToGemini(
+            input,
+            isSimplifyMode,
+            'models/gemini-2.0-flash-001',
+            travelInstructions as any
+          );
+        } catch (error: any) {
+          // Handle API key invalid error
+          if (error.message?.includes('API key not valid') ||
+              error.message?.includes('API key is missing')) {
+            response = {
+              text: "I understand you're asking about travel instructions. However, I'm currently in development mode and can't provide specific answers. Please try again later when the API integration is complete.",
+              sources: [{
+                reference: "System",
+                text: "Development mode response"
+              }]
+            };
+          } else {
+            throw error;
+          }
+        }
+
+        // Create bot message with response
+        const botMessage: Message = {
+          id: generateMessageId(),
+          sender: 'bot',
+          text: response.text,
+          timestamp: Date.now(),
+          sources: response.sources,
+          simplified: isSimplifyMode,
+          status: 'delivered'
+        };
+        
+        setMessages(prev => [...prev, botMessage]);
       } catch (error) {
         console.error('Error sending message to Gemini:', error);
         
