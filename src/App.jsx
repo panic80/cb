@@ -3,7 +3,6 @@ import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-route
 import { sendToGemini } from './api/gemini.jsx';
 import { fetchTravelInstructions } from './api/travelInstructions';
 import { addQuestion } from './api/questionAnalysis';
-import LoadingScreen from './components/LoadingScreen';
 import './index.css';
 
 // Lazy load components
@@ -16,6 +15,7 @@ const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
 const ModernChatPage = lazy(() => import('./pages/ModernChatPage'));
 const ImprovedChatDemo = lazy(() => import('./pages/ImprovedChatDemo'));
 const ThemeTestPage = lazy(() => import('./pages/ThemeTestPage'));
+const LoadingDebugPage = lazy(() => import('./pages/LoadingDebugPage'));
 
 // Prefetch components
 const prefetchComponent = (importFn) => {
@@ -207,10 +207,10 @@ function App() {
   return (
     <Router>
       <div className="w-screen min-h-screen overflow-x-hidden overflow-y-auto m-0 p-0 max-w-[100vw]">
-        <Suspense fallback={<LoadingScreen />}>
+        <Suspense fallback={<div className="min-h-screen bg-background" />}>
           <Routes>
             <Route path="/" element={
-              <Suspense fallback={<LoadingScreen />}>
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
                 <LandingPage />
               </Suspense>
             } />
@@ -218,21 +218,21 @@ function App() {
               path="/chat"
               element={
                 state.isPreloading ? (
-                  <LoadingScreen />
+                  <div className="min-h-screen bg-background" />
                 ) : (
-                  <Suspense fallback={<LoadingScreen />}>
+                  <Suspense fallback={<div className="min-h-screen bg-background" />}>
                     <ModernChatPage />
                   </Suspense>
                 )
               }
             />
             <Route path="/privacy" element={
-                          <Suspense fallback={<LoadingScreen />}>
+                          <Suspense fallback={<div className="min-h-screen bg-background" />}>
                             <PrivacyPage />
                           </Suspense>
                         } />
             <Route path="/faq" element={
-              <Suspense fallback={<LoadingScreen />}>
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
                 <FAQPage />
               </Suspense>
             } />
@@ -247,13 +247,18 @@ function App() {
               </div>
             } />
             <Route path="/improved-chat" element={
-              <Suspense fallback={<LoadingScreen />}>
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
                 <ImprovedChatDemo />
               </Suspense>
             } />
             <Route path="/theme-test" element={
-              <Suspense fallback={<LoadingScreen />}>
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
                 <ThemeTestPage />
+              </Suspense>
+            } />
+            <Route path="/loading-debug" element={
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
+                <LoadingDebugPage />
               </Suspense>
             } />
           </Routes>
