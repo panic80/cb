@@ -6,6 +6,32 @@ const app = express();
 
 // Parse JSON request bodies with increased limit
 app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({
+  extended: true,
+  limit: '10mb',
+  parameterLimit: 10000
+}));
+
+// Helper function to decode URL encoded values in both GET and POST requests
+const decodeUrlParams = (params) => {
+  if (!params || typeof params !== 'object') return params;
+  
+  const result = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value)) {
+      result[key] = value.map(item =>
+        typeof item === 'string' ? decodeURIComponent(item.replace(/\+/g, ' ')) : item
+      );
+    } else if (typeof value === 'string') {
+      result[key] = decodeURIComponent(value.replace(/\+/g, ' '));
+    } else if (typeof value === 'object' && value !== null) {
+      result[key] = decodeUrlParams(value); // Handle nested objects
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+};
 
 // Enable CORS for production
 app.use((req, res, next) => {
@@ -287,6 +313,55 @@ app.post('/api/gemini/generateContent', rateLimiter, async (req, res) => {
       message: isProduction ? 'An error occurred while processing your request.' : error.message,
       ...(isProduction ? {} : { stack: error.stack })
     });
+  }
+});
+
+// Test endpoint for URL parsing validation (supports both GET and POST)
+app.all('/api/test-url-encoding', (req, res) => {
+  try {
+    // Process and properly decode URL-encoded body values
+    const decodedBody = {};
+    for (const [key, value] of Object.entries(req.body)) {
+      // Handle both string and array values
+      if (Array.isArray(value)) {
+        decodedBody[key] = value.map(item =>
+          typeof item === 'string' ? decodeURIComponent(item.replace(/\+/g, ' ')) : item
+        );
+      } else if (typeof value === 'string') {
+        decodedBody[key] = decodeURIComponent(value.replace(/\+/g, ' '));
+      } else {
+        decodedBody[key] = value;
+      }
+    }
+
+    // Process and properly decode query parameters
+    const decodedQuery = {};
+    for (const [key, value] of Object.entries(req.query)) {
+      if (Array.isArray(value)) {
+        decodedQuery[key] = value.map(item =>
+          typeof item === 'string' ? decodeURIComponent(item) : item
+        );
+      } else if (typeof value === 'string') {
+        decodedQuery[key] = decodeURIComponent(value);
+      } else {
+        decodedQuery[key] = value;
+      }
+    }
+
+    // Return both raw and decoded components for comparison
+    res.json({
+      // Raw values as parsed by Express
+      body: req.body,
+      query: req.query,
+      // Properly decoded values
+      decodedBody,
+      decodedQuery,
+      // URL components
+      originalUrl: decodeURIComponent(req.originalUrl),
+      fullUrl: `${req.protocol}://${req.get('host')}${decodeURIComponent(req.originalUrl)}`
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Decoding failed', message: error.message });
   }
 });
 
