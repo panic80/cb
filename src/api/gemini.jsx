@@ -112,11 +112,9 @@ const handleApiError = (error) => {
  * @returns {Promise<Object>} Response with text and sources
  */
 export const callGeminiAPI = async (
-  message, 
-  isSimplified, 
-  model, 
+  message,
+  isSimplified,
   instructions,
-  secureMode = false,
   enableRetry = true
 ) => {
   // Validate API key
@@ -132,20 +130,11 @@ export const callGeminiAPI = async (
     generationConfig: getGenerationConfig()
   };
   
-  // In secure mode, pass API key in request headers instead of URL
-  let url, headers;
-  if (secureMode) {
-    url = '/api/gemini/generateContent';
-    headers = {
-      "Content-Type": "application/json",
-      "X-API-KEY": API_KEY
-    };
-  } else {
-    url = `/api/gemini/generateContent?key=${API_KEY}`;
-    headers = {
-      "Content-Type": "application/json"
-    };
-  }
+  let url = '/api/gemini/generateContent';
+  let headers = {
+    "Content-Type": "application/json",
+    "X-API-KEY": API_KEY
+  };
 
   let retries = 0;
   
@@ -249,7 +238,7 @@ export const sendToGemini = async (
     }
 
     // Always use the proxy endpoint for consistent handling across environments
-    return await callGeminiAPI(message, isSimplified, model, preloadedInstructions, true);
+    return await callGeminiAPI(message, isSimplified, preloadedInstructions);
 
   } catch (error) {
     console.error('Gemini API Error:', {
