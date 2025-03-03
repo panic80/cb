@@ -3,34 +3,10 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   createPrompt,
   getGenerationConfig,
-  callGeminiViaProxy,
-  callGeminiViaSDK,
+  callGeminiAPI,
   sendToGemini
 } from '../gemini';
 import { parseApiResponse } from '../../utils/chatUtils';
-
-// Mock the GoogleGenerativeAI module
-vi.mock('@google/generative-ai', () => {
-  const generativeContentMock = {
-    response: {
-      text: vi.fn().mockReturnValue(
-        'Reference: Section 1.1\nQuote: This is a quote\nAnswer: Test answer\nReason: Test reason'
-      )
-    }
-  };
-
-  const generateContentMock = vi.fn().mockResolvedValue(generativeContentMock);
-
-  const getGenerativeModelMock = vi.fn().mockReturnValue({
-    generateContent: generateContentMock
-  });
-
-  return {
-    GoogleGenerativeAI: vi.fn().mockImplementation(() => ({
-      getGenerativeModel: getGenerativeModelMock
-    }))
-  };
-});
 
 // Mock the chatUtils module
 vi.mock('../../utils/chatUtils', () => ({
@@ -111,9 +87,9 @@ describe('gemini module', () => {
     });
   });
 
-  describe('callGeminiViaProxy', () => {
-    it('should call the proxy endpoint correctly', async () => {
-      const result = await callGeminiViaProxy(
+  describe('callGeminiAPI', () => {
+    it('should call the API endpoint correctly', async () => {
+      const result = await callGeminiAPI(
         'Test question',
         false,
         'models/gemini-2.0-flash-001',
@@ -156,7 +132,7 @@ describe('gemini module', () => {
       });
 
       await expect(
-        callGeminiViaProxy('Test question', false, 'models/gemini-2.0-flash-001', 'Test instructions')
+        callGeminiAPI('Test question', false, 'models/gemini-2.0-flash-001', 'Test instructions')
       ).rejects.toThrow('Failed to fetch from Gemini API: 500 Internal Server Error');
     });
 
@@ -170,46 +146,8 @@ describe('gemini module', () => {
       });
 
       await expect(
-        callGeminiViaProxy('Test question', false, 'models/gemini-2.0-flash-001', 'Test instructions')
+        callGeminiAPI('Test question', false, 'models/gemini-2.0-flash-001', 'Test instructions')
       ).rejects.toThrow('Invalid response format from Gemini API');
-    });
-  });
-
-  describe('callGeminiViaSDK', () => {
-    it('should call the Google Generative AI SDK correctly', async () => {
-      const { GoogleGenerativeAI } = await import('@google/generative-ai');
-      
-      const result = await callGeminiViaSDK(
-        'Test question',
-        true,
-        'models/gemini-2.0-flash-001',
-        'Test instructions'
-      );
-
-      // Check that SDK was initialized correctly
-      expect(GoogleGenerativeAI).toHaveBeenCalledWith('test-api-key');
-      
-      // Check that the model was created correctly
-      const mockGAI = GoogleGenerativeAI.mock.results[0].value;
-      expect(mockGAI.getGenerativeModel).toHaveBeenCalledWith({ model: 'gemini-2.0-flash' });
-      
-      // Check that generateContent was called with the right parameters
-      const mockModel = mockGAI.getGenerativeModel.mock.results[0].value;
-      expect(mockModel.generateContent).toHaveBeenCalledWith(
-        expect.stringContaining('Test question'),
-        getGenerationConfig()
-      );
-
-      // Check that the response is processed correctly
-      expect(parseApiResponse).toHaveBeenCalledWith(
-        'Reference: Section 1.1\nQuote: This is a quote\nAnswer: Test answer\nReason: Test reason',
-        true
-      );
-      
-      expect(result).toEqual({
-        text: 'Simple response',
-        sources: [{ text: 'This is a quote', reference: 'Section 1.1' }]
-      });
     });
   });
 
@@ -218,56 +156,25 @@ describe('gemini module', () => {
       await expect(sendToGemini('Test question')).rejects.toThrow('Travel instructions not loaded');
     });
 
-    it('should use the proxy in development mode', async () => {
-      vi.spyOn(console, 'warn').mockImplementation(() => {});
-      
-      const spy = vi.spyOn(global, 'callGeminiViaProxy').mockResolvedValue({
-        text: 'Proxy response',
-        sources: []
-      });
-
+    it('should use the unified API endpoint', async () => {
       const result = await sendToGemini('Test question', false, 'models/gemini-2.0-flash-001', 'Test instructions');
 
-      expect(spy).toHaveBeenCalled();
-      expect(result).toEqual({ text: 'Proxy response', sources: [] });
+      expect(result).toEqual({
+        text: 'Detailed response with reason',
+        sources: [{ text: 'This is a quote', reference: 'Section 1.1' }]
+      });
     });
 
-    it('should fallback to SDK if proxy fails', async () => {
-      vi.spyOn(console, 'warn').mockImplementation(() => {});
-      
-      const proxySpy = vi.spyOn(global, 'callGeminiViaProxy').mockRejectedValue(new Error('Proxy error'));
-      const sdkSpy = vi.spyOn(global, 'callGeminiViaSDK').mockResolvedValue({
-        text: 'SDK response',
-        sources: []
+    it('should handle API errors and return fallback when enabled', async () => {
+      global.fetch.mockRejectedValueOnce(new Error('API Error'));
+
+      const result = await sendToGemini('Test question', false, 'models/gemini-2.0-flash-001', 'Test instructions', true);
+
+      expect(result).toEqual({
+        text: 'Unable to generate response. Please try again later. Our AI service may be experiencing temporary issues.',
+        sources: [{ reference: 'System', text: 'Fallback response when API is unavailable.' }],
+        fallback: true
       });
-
-      const result = await sendToGemini('Test question', false, 'models/gemini-2.0-flash-001', 'Test instructions');
-
-      expect(proxySpy).toHaveBeenCalled();
-      expect(sdkSpy).toHaveBeenCalled();
-      expect(result).toEqual({ text: 'SDK response', sources: [] });
-    });
-
-    it('should use SDK directly in production mode', async () => {
-      // Set to production mode
-      vi.stubGlobal('import.meta', {
-        env: {
-          VITE_GEMINI_API_KEY: 'test-api-key',
-          DEV: false
-        }
-      });
-
-      const proxySpy = vi.spyOn(global, 'callGeminiViaProxy');
-      const sdkSpy = vi.spyOn(global, 'callGeminiViaSDK').mockResolvedValue({
-        text: 'SDK response',
-        sources: []
-      });
-
-      const result = await sendToGemini('Test question', false, 'models/gemini-2.0-flash-001', 'Test instructions');
-
-      expect(proxySpy).not.toHaveBeenCalled();
-      expect(sdkSpy).toHaveBeenCalled();
-      expect(result).toEqual({ text: 'SDK response', sources: [] });
     });
   });
 });

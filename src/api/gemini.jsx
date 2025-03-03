@@ -1,7 +1,7 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { fetchTravelInstructions } from './travelInstructions';
 import { parseApiResponse } from '../utils/chatUtils';
 
+// Use environment variable for API key
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const MAX_RETRIES = 2;
 const RETRY_DELAY = 1000; // 1 second
@@ -102,16 +102,16 @@ const handleApiError = (error) => {
 };
 
 /**
- * Call Gemini API via proxy endpoint in development
+ * Call Gemini API through the proxy endpoint
  * @param {string} message - User message
  * @param {boolean} isSimplified - Whether to show simplified response
  * @param {string} model - The model to use
  * @param {string} instructions - Context for the AI
- * @param {boolean} secureMode - Whether to use secure API key handling
+ * @param {boolean} secureMode - Whether to use secure API key handling (defaults to true)
  * @param {boolean} enableRetry - Whether to enable retry logic
  * @returns {Promise<Object>} Response with text and sources
  */
-export const callGeminiViaProxy = async (
+export const callGeminiAPI = async (
   message, 
   isSimplified, 
   model, 
@@ -208,66 +208,6 @@ export const callGeminiViaProxy = async (
 };
 
 /**
- * Call Gemini API directly via SDK
- * @param {string} message - User message
- * @param {boolean} isSimplified - Whether to show simplified response
- * @param {string} model - The model to use
- * @param {string} instructions - Context for the AI
- * @param {boolean} enableRetry - Whether to enable retry logic
- * @returns {Promise<Object>} Response with text and sources
- */
-export const callGeminiViaSDK = async (
-  message, 
-  isSimplified, 
-  model, 
-  instructions,
-  enableRetry = true
-) => {
-  // Validate API key
-  if (!validateApiKey(API_KEY)) {
-    throw new Error('API key is missing or invalid');
-  }
-  
-  // Define model name consistently
-  const modelName = "gemini-2.0-flash";
-  const prompt = createPrompt(message, isSimplified, instructions);
-  const generationConfig = getGenerationConfig();
-  
-  let retries = 0;
-  
-  while (true) {
-    try {
-      const genAI = new GoogleGenerativeAI(API_KEY);
-      const genModel = genAI.getGenerativeModel({ model: modelName });
-      
-      // Generate content using the SDK
-      const result = await genModel.generateContent(prompt, generationConfig);
-      console.log('Gemini API Response (SDK):', JSON.stringify(result, null, 2));
-
-      // Extract and parse the text response
-      const text = result.response.text();
-      if (!text) {
-        throw new Error('Invalid response format from Gemini API');
-      }
-
-      return parseApiResponse(text, isSimplified);
-    } catch (error) {
-      // If we should retry and haven't exhausted retries, do so
-      if (enableRetry && retries < MAX_RETRIES &&
-          !error.message.includes('API key') && 
-          !error.message.includes('Invalid response format')) {
-        retries++;
-        await delay(RETRY_DELAY * Math.pow(2, retries - 1));
-        continue;
-      }
-      
-      console.error('SDK API error:', error);
-      throw handleApiError(error);
-    }
-  }
-};
-
-/**
  * Default fallback response when all API methods fail
  * @param {boolean} isSimplified - Whether to show simplified response
  * @returns {Object} A fallback response object
@@ -284,13 +224,16 @@ export const getFallbackResponse = (isSimplified) => ({
 });
 
 /**
- * Send message to Gemini API
+ * Send message to Gemini API using the unified proxy endpoint
  * @param {string} message - User message
  * @param {boolean} isSimplified - Whether to show simplified response
- * @param {string} model - The model to use
+ * @param {string} model - The model to use (defaults to gemini-2.0-flash)
  * @param {string} preloadedInstructions - Preloaded travel instructions
  * @param {boolean} useFallback - Whether to return fallback content on error
  * @returns {Promise<Object>} Response with text and sources
+ *
+ * This function uses a unified approach through our proxy endpoint for all environments,
+ * providing consistent error handling, monitoring, and security across development and production.
  */
 export const sendToGemini = async (
   message,
@@ -305,21 +248,8 @@ export const sendToGemini = async (
       throw new Error('Travel instructions not loaded');
     }
 
-    // Check if we're in development or production
-    const isDevelopment = import.meta.env.DEV;
-    
-    if (isDevelopment) {
-      try {
-        // In development, try the proxy endpoint first
-        return await callGeminiViaProxy(message, isSimplified, model, preloadedInstructions);
-      } catch (proxyError) {
-        console.warn('Proxy API call failed, falling back to direct SDK:', proxyError);
-        // Fall back to direct SDK call
-      }
-    }
-
-    // Direct SDK call (used in production or as fallback in development)
-    return await callGeminiViaSDK(message, isSimplified, model, preloadedInstructions);
+    // Always use the proxy endpoint for consistent handling across environments
+    return await callGeminiAPI(message, isSimplified, model, preloadedInstructions, true);
 
   } catch (error) {
     console.error('Gemini API Error:', {

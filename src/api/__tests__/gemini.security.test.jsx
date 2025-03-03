@@ -3,36 +3,12 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   createPrompt,
   getGenerationConfig,
-  callGeminiViaProxy,
-  callGeminiViaSDK,
+  callGeminiAPI,
   sendToGemini,
   validateApiKey,
   getFallbackResponse
 } from '../gemini';
 import { parseApiResponse } from '../../utils/chatUtils';
-
-// Mock the GoogleGenerativeAI module
-vi.mock('@google/generative-ai', () => {
-  const generativeContentMock = {
-    response: {
-      text: vi.fn().mockReturnValue(
-        'Reference: Section 1.1\nQuote: This is a quote\nAnswer: Test answer\nReason: Test reason'
-      )
-    }
-  };
-
-  const generateContentMock = vi.fn().mockResolvedValue(generativeContentMock);
-
-  const getGenerativeModelMock = vi.fn().mockReturnValue({
-    generateContent: generateContentMock
-  });
-
-  return {
-    GoogleGenerativeAI: vi.fn().mockImplementation(() => ({
-      getGenerativeModel: getGenerativeModelMock
-    }))
-  };
-});
 
 // Mock the chatUtils module
 vi.mock('../../utils/chatUtils', () => ({
@@ -102,7 +78,7 @@ describe('gemini module security and resilience', () => {
       const spy = vi.spyOn(global, 'fetch');
       
       try {
-        await callGeminiViaProxy('Test question', false, 'gemini-2.0-flash', 'Test instructions', true);
+        await callGeminiAPI('Test question', false, 'gemini-2.0-flash', 'Test instructions', true);
       } catch (e) {
         // We might get an error but we're just checking the URL format
       }
@@ -128,7 +104,7 @@ describe('gemini module security and resilience', () => {
       });
       
       await expect(
-        callGeminiViaProxy('Test question', false, 'gemini-2.0-flash', 'Test instructions', false, false)
+        callGeminiAPI('Test question', false, 'gemini-2.0-flash', 'Test instructions', false, false)
       ).rejects.toThrow('Rate limit exceeded. Please try again later.');
     });
     
@@ -142,21 +118,21 @@ describe('gemini module security and resilience', () => {
     });
   });
   
-  describe('Environment handling', () => {
-    it('should select the appropriate API method based on environment', () => {
-      // Unit test for the conditional logic in the code
-      const isDevelopment = true;
-      const isProduction = false;
+  describe('API consistency', () => {
+    it('should use the same API endpoint regardless of environment', async () => {
+      // Our unified approach uses the same API endpoint in all environments
+      const spy = vi.spyOn(global, 'fetch');
       
-      // In development, should use proxy first then fall back to SDK
-      expect(isDevelopment).toBe(true);
+      try {
+        await sendToGemini('Test question', false, 'gemini-2.0-flash', 'Test instructions');
+      } catch (e) {
+        // We might get an error but we're just checking the URL format
+      }
       
-      // In production, should use SDK directly
-      expect(isProduction).toBe(false);
-      
-      // The sendToGemini function has this logic:
-      // if (isDevelopment) { try proxy first } else { use SDK }
-      expect(true).toBe(true);
+      // Verify that fetch was called with the expected endpoint
+      expect(spy).toHaveBeenCalled();
+      const url = spy.mock.calls[0]?.[0];
+      expect(url).toContain('/api/gemini/generateContent');
     });
   });
   

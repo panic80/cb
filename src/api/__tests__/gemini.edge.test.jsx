@@ -3,34 +3,10 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   createPrompt,
   getGenerationConfig,
-  callGeminiViaProxy,
-  callGeminiViaSDK,
+  callGeminiAPI,
   sendToGemini
 } from '../gemini';
 import { parseApiResponse } from '../../utils/chatUtils';
-
-// Mock the GoogleGenerativeAI module
-vi.mock('@google/generative-ai', () => {
-  const generativeContentMock = {
-    response: {
-      text: vi.fn().mockReturnValue(
-        'Reference: Section 1.1\nQuote: This is a quote\nAnswer: Test answer\nReason: Test reason'
-      )
-    }
-  };
-
-  const generateContentMock = vi.fn().mockResolvedValue(generativeContentMock);
-
-  const getGenerativeModelMock = vi.fn().mockReturnValue({
-    generateContent: generateContentMock
-  });
-
-  return {
-    GoogleGenerativeAI: vi.fn().mockImplementation(() => ({
-      getGenerativeModel: getGenerativeModelMock
-    }))
-  };
-});
 
 // Mock the chatUtils module
 vi.mock('../../utils/chatUtils', () => ({
@@ -99,69 +75,25 @@ describe('gemini module edge cases', () => {
     });
   });
 
-  describe('SDK error handling', () => {
-    it('should handle SDK errors consistently', async () => {
-      // Mock API service error
-      const { GoogleGenerativeAI } = await import('@google/generative-ai');
-      const mockError = new Error('Service unavailable');
-      mockError.name = 'ApiError';
-      
-      const mockGenModel = {
-        generateContent: vi.fn().mockRejectedValue(mockError)
-      };
-      
-      GoogleGenerativeAI.mockImplementationOnce(() => ({
-        getGenerativeModel: vi.fn().mockReturnValue(mockGenModel)
-      }));
-
-      await expect(
-        callGeminiViaSDK('Test question', false, 'gemini-2.0-flash', 'Test instructions')
-      ).rejects.toThrow('Gemini API Error: Service unavailable');
-      
-      expect(console.error).toHaveBeenCalled();
-    });
-    
-    it('should handle rate limit errors specifically', async () => {
-      // Mock rate limit error
-      const { GoogleGenerativeAI } = await import('@google/generative-ai');
-      const rateError = new Error('Resource exhausted: quota exceeded');
-      rateError.name = 'ApiError';
-      
-      const mockGenModel = {
-        generateContent: vi.fn().mockRejectedValue(rateError)
-      };
-      
-      GoogleGenerativeAI.mockImplementationOnce(() => ({
-        getGenerativeModel: vi.fn().mockReturnValue(mockGenModel)
-      }));
-
-      await expect(
-        callGeminiViaSDK('Test question', false, 'gemini-2.0-flash', 'Test instructions')
-      ).rejects.toThrow('Rate limit exceeded. Please try again later.');
-      
-      expect(console.error).toHaveBeenCalled();
-    });
-  });
-
-  describe('Proxy error handling', () => {
-    it('should handle network errors when calling proxy', async () => {
+  describe('API error handling', () => {
+    it('should handle network errors when calling API', async () => {
       global.fetch.mockRejectedValueOnce(new Error('Network error'));
 
       await expect(
-        callGeminiViaProxy('Test question', false, 'gemini-2.0-flash', 'Test instructions')
+        callGeminiAPI('Test question', false, 'gemini-2.0-flash', 'Test instructions')
       ).rejects.toThrow('Network error while calling Gemini API');
       
       expect(console.error).toHaveBeenCalled();
     });
 
-    it('should handle malformed JSON in proxy response', async () => {
+    it('should handle malformed JSON in API response', async () => {
       global.fetch.mockResolvedValueOnce({
         ok: true,
         json: vi.fn().mockRejectedValue(new SyntaxError('Unexpected token'))
       });
 
       await expect(
-        callGeminiViaProxy('Test question', false, 'gemini-2.0-flash', 'Test instructions')
+        callGeminiAPI('Test question', false, 'gemini-2.0-flash', 'Test instructions')
       ).rejects.toThrow('Invalid JSON response from Gemini API');
     });
   });
@@ -187,7 +119,7 @@ describe('gemini module edge cases', () => {
       });
 
       await expect(
-        callGeminiViaProxy('Test question', false, 'gemini-2.0-flash', 'Test instructions')
+        callGeminiAPI('Test question', false, 'gemini-2.0-flash', 'Test instructions')
       ).rejects.toThrow('Empty API response');
     });
 
@@ -212,44 +144,29 @@ describe('gemini module edge cases', () => {
       });
 
       await expect(
-        callGeminiViaProxy('Test question', false, 'gemini-2.0-flash', 'Test instructions')
+        callGeminiAPI('Test question', false, 'gemini-2.0-flash', 'Test instructions')
       ).rejects.toThrow('Response does not match expected format');
     });
   });
 
-  describe('Initialization and fallback behavior', () => {
-    it('should retry with SDK if proxy fails', async () => {
-      // First set up environment to choose proxy first (in development)
-      vi.stubGlobal('import.meta', {
-        env: {
-          VITE_GEMINI_API_KEY: 'test-api-key',
-          DEV: true
-        }
-      });
-
-      // Make proxy fail but SDK succeed
-      vi.spyOn(global, 'callGeminiViaProxy').mockRejectedValue(new Error('Proxy error'));
-      vi.spyOn(global, 'callGeminiViaSDK').mockResolvedValue({
-        text: 'SDK response',
-        sources: []
-      });
-
-      const result = await sendToGemini('Test question', false, 'gemini-2.0-flash', 'Test instructions');
-
-      expect(result).toEqual({
-        text: 'SDK response',
-        sources: []
-      });
-    });
-
-    it('should provide helpful error message when all methods fail', async () => {
-      // Make both methods fail
-      vi.spyOn(global, 'callGeminiViaProxy').mockRejectedValue(new Error('Proxy error'));
-      vi.spyOn(global, 'callGeminiViaSDK').mockRejectedValue(new Error('SDK error'));
+  describe('Error handling behavior', () => {
+    it('should provide helpful error message when API fails', async () => {
+      // Mock API failure
+      vi.spyOn(global, 'callGeminiAPI').mockRejectedValue(new Error('API error'));
 
       await expect(
         sendToGemini('Test question', false, 'gemini-2.0-flash', 'Test instructions')
       ).rejects.toThrow('Could not connect to Gemini API after multiple attempts');
+    });
+
+    it('should use fallback response when enabled', async () => {
+      // Mock API failure
+      vi.spyOn(global, 'callGeminiAPI').mockRejectedValue(new Error('API error'));
+
+      const result = await sendToGemini('Test question', false, 'gemini-2.0-flash', 'Test instructions', true);
+
+      expect(result).toHaveProperty('fallback', true);
+      expect(result.text).toContain('Unable to generate response');
     });
   });
 });
