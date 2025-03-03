@@ -168,12 +168,13 @@ setInterval(() => {
   }
 }, CLEANUP_INTERVAL);
 
-// Error handling middleware
+/* Error handling middleware */
 app.use((err, req, res, next) => {
   console.error('Global error handler:', err);
   res.status(500).json({
     error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'An unexpected error occurred'
+    message: err.message,
+    stack: err.stack
   });
 });
 
@@ -306,12 +307,10 @@ app.post('/api/gemini/generateContent', rateLimiter, async (req, res) => {
       });
     }
     
-    // In production, don't expose internal error details
-    const isProduction = process.env.NODE_ENV === 'production';
     res.status(500).json({
       error: 'Gemini API Error',
-      message: isProduction ? 'An error occurred while processing your request.' : error.message,
-      ...(isProduction ? {} : { stack: error.stack })
+      message: error.message,
+      stack: error.stack
     });
   }
 });
