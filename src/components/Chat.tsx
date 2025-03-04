@@ -4,6 +4,8 @@ import ChatWindow, { Message } from './ChatWindow';
 import ChatInput from './ChatInput';
 import { sendToGemini } from '../api/gemini';
 import { fetchTravelInstructions } from '../api/travelInstructions';
+import { ChatError, ChatErrorType } from '../utils/chatErrors';
+import { useRetry } from '../utils/useRetry';
 
 const Chat: React.FC = () => {
   const navigate = useNavigate();
@@ -24,6 +26,7 @@ const Chat: React.FC = () => {
   const [showToast, setShowToast] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string>("");
   const [conversationStarted, setConversationStarted] = useState<boolean>(false);
+  const { executeWithRetry, attemptCount, resetAttempts } = useRetry();
 
   // Load travel instructions on component mount
   useEffect(() => {
@@ -74,94 +77,112 @@ const Chat: React.FC = () => {
 
   // Send message handler
   const handleSend = async () => {
-    if (input.trim()) {
-      // Create and add user message
-      const userMessage: Message = {
-        id: generateMessageId(),
-        sender: 'user',
-        text: input,
-        timestamp: Date.now(),
-        status: 'sent'
-      };
-      
-      setMessages(prev => [...prev, userMessage]);
-      setInput("");
-      setIsTyping(false);
-      setIsLoading(true);
-      
-      // Scroll to bottom after sending message
-      setTimeout(() => {
-        if (chatContainerRef.current) {
-          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-        }
-      }, 100);
-      
-      try {
-        // Send message to Gemini API if travel instructions are loaded
-        if (!travelInstructions) {
-          const fallbackMessage: Message = {
+    if (!input.trim()) return;
+
+    const userMessage: Message = {
+      id: generateMessageId(),
+      sender: 'user',
+      text: input,
+      timestamp: Date.now(),
+      status: 'sent'
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    setInput("");
+    setIsTyping(false);
+    setIsLoading(true);
+    resetAttempts();
+    
+    // Scroll to bottom after sending message
+    setTimeout(() => {
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      }
+    }, 100);
+    
+    try {
+      if (!travelInstructions) {
+        throw new ChatError(ChatErrorType.SERVICE, { message: 'Travel instructions not loaded' });
+      }
+
+      const sendMessageWithRetry = async () => {
+        // Show retry status if not first attempt
+        if (attemptCount > 0) {
+          const retryMessage: Message = {
             id: generateMessageId(),
             sender: 'bot',
-            text: "I'm sorry, I couldn't access the travel instructions. Please try again later.",
+            text: `Retrying... Attempt ${attemptCount + 1}`,
             timestamp: Date.now(),
-            status: 'error'
+            status: 'retrying'
           };
-          setMessages(prev => [...prev, fallbackMessage]);
-          return;
+          setMessages(prev => [...prev, retryMessage]);
         }
 
-        let response;
         try {
-          response = await sendToGemini(
+          const response = await sendToGemini(
             input,
             isSimplifyMode,
             'models/gemini-2.0-flash-001',
-            travelInstructions as any
+            travelInstructions
           );
+          return response;
         } catch (error: any) {
-          // Handle API key invalid error
-          if (error.message?.includes('API key not valid') ||
-              error.message?.includes('API key is missing')) {
-            response = {
-              text: "I understand you're asking about travel instructions. However, I'm currently in development mode and can't provide specific answers. Please try again later when the API integration is complete.",
-              sources: [{
-                reference: "System",
-                text: "Development mode response"
-              }]
-            };
+          if (ChatError.isApiKeyError(error)) {
+            throw new ChatError(ChatErrorType.API_KEY, error);
+          } else if (ChatError.isNetworkError(error)) {
+            throw new ChatError(ChatErrorType.NETWORK, error);
+          } else if (ChatError.isRateLimitError(error)) {
+            throw new ChatError(ChatErrorType.RATE_LIMIT, error);
           } else {
-            throw error;
+            throw new ChatError(ChatErrorType.SERVICE, error);
           }
         }
+      };
 
-        // Create bot message with response
-        const botMessage: Message = {
-          id: generateMessageId(),
-          sender: 'bot',
-          text: response.text,
-          timestamp: Date.now(),
-          sources: response.sources,
-          simplified: isSimplifyMode,
-          status: 'delivered'
-        };
-        
-        setMessages(prev => [...prev, botMessage]);
-      } catch (error) {
-        console.error('Error sending message to Gemini:', error);
-        
-        // Add error message
-        const errorMessage: Message = {
-          id: generateMessageId(),
-          sender: 'bot',
-          text: "I'm sorry, I encountered an error processing your request. Please try again.",
-          timestamp: Date.now(),
-          status: 'error'
-        };
-        
-        setMessages(prev => [...prev, errorMessage]);
-      } finally {
-        setIsLoading(false);
+      const response = await executeWithRetry(sendMessageWithRetry);
+      
+      // Remove any retry messages
+      setMessages(prev => prev.filter(msg => msg.status !== 'retrying'));
+
+      const botMessage: Message = {
+        id: generateMessageId(),
+        sender: 'bot',
+        text: response.text,
+        timestamp: Date.now(),
+        sources: response.sources,
+        simplified: isSimplifyMode,
+        status: 'delivered'
+      };
+      
+      setMessages(prev => [...prev, botMessage]);
+    } catch (error) {
+      console.error('Chat error:', error);
+      
+      let chatError: ChatError;
+      if (error instanceof ChatError) {
+        chatError = error;
+      } else {
+        chatError = new ChatError(ChatErrorType.UNKNOWN, error);
       }
+
+      const { title, message, suggestion } = chatError.getErrorMessage();
+      const errorMessage: Message = {
+        id: generateMessageId(),
+        sender: 'bot',
+        text: `${title}: ${message}\n\n${suggestion}`,
+        timestamp: Date.now(),
+        status: 'error'
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+      
+      // Show toast for network errors to encourage retry
+      if (chatError.type === ChatErrorType.NETWORK) {
+        setToastMessage("Network error. Please check your connection and try again.");
+        setShowToast(true);
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 

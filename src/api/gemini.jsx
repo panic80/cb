@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { fetchTravelInstructions } from './travelInstructions';
 import { parseApiResponse } from '../utils/chatUtils';
+import { ChatError, ChatErrorType } from '../utils/chatErrors';
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const MAX_RETRIES = 2;
@@ -69,36 +70,45 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
  * @returns {Error} Processed error with standardized message
  */
 const handleApiError = (error) => {
-  // Check for rate limiting errors
-  if (error.message.includes('quota') || 
+  // If it's already a ChatError, return it
+  if (error instanceof ChatError) {
+    return error;
+  }
+
+  // API key validation errors
+  if (error.message.includes('API key') || error.message.includes('authentication')) {
+    return new ChatError(ChatErrorType.API_KEY, {
+      message: error.message,
+      details: 'Check VITE_GEMINI_API_KEY in .env file'
+    });
+  }
+
+  // Rate limiting errors
+  if (error.message.includes('quota') ||
       error.message.includes('rate limit') ||
       error.message.includes('429')) {
-    return new Error('Rate limit exceeded. Please try again later.');
+    return new ChatError(ChatErrorType.RATE_LIMIT, error);
   }
   
   // Network errors
-  if (error.message.includes('Network') || 
+  if (error.message.includes('Network') ||
       error.message.includes('ECONNREFUSED') ||
       error.message.includes('fetch')) {
-    return new Error('Network error while calling Gemini API. Please check your connection.');
+    return new ChatError(ChatErrorType.NETWORK, error);
   }
   
-  // Invalid JSON responses
-  if (error instanceof SyntaxError || error.message.includes('JSON')) {
-    return new Error('Invalid JSON response from Gemini API');
+  // Invalid responses
+  if (error instanceof SyntaxError ||
+      error.message.includes('JSON') ||
+      error.message.includes('Invalid response format')) {
+    return new ChatError(ChatErrorType.SERVICE, {
+      message: 'Invalid API response format',
+      details: error.message
+    });
   }
   
-  // Malformed API response
-  if (error.message.includes('Invalid response format')) {
-    return new Error('The API returned a response in an unexpected format');
-  }
-  
-  // General API error with enhanced message
-  if (error.message.includes('Gemini API Error')) {
-    return error;
-  }
-  
-  return new Error(`Gemini API Error: ${error.message}`);
+  // Unknown errors
+  return new ChatError(ChatErrorType.UNKNOWN, error);
 };
 
 /**
@@ -121,7 +131,10 @@ export const callGeminiViaProxy = async (
 ) => {
   // Validate API key
   if (!validateApiKey(API_KEY)) {
-    throw new Error('API key is missing or invalid');
+    throw new ChatError(ChatErrorType.API_KEY, {
+      message: 'Missing or invalid Gemini API key',
+      details: 'Please check that VITE_GEMINI_API_KEY is properly set in your .env file'
+    });
   }
   
   const promptText = createPrompt(message, isSimplified, instructions);
@@ -258,6 +271,7 @@ export const sendToGemini = async (
 
   } catch (error) {
     console.error('Gemini API Error:', {
+      type: error instanceof ChatError ? error.type : 'UNKNOWN',
       message: error.message,
       stack: error.stack
     });
@@ -268,6 +282,14 @@ export const sendToGemini = async (
       return getFallbackResponse(isSimplified);
     }
     
-    throw new Error('Could not connect to Gemini API after multiple attempts');
+    // Transform any remaining errors into ChatErrors
+    if (!(error instanceof ChatError)) {
+      throw new ChatError(ChatErrorType.SERVICE, {
+        message: 'Could not connect to Gemini API after multiple attempts',
+        originalError: error
+      });
+    }
+    
+    throw error;
   }
 };
