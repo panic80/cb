@@ -1,23 +1,59 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import LandingPage from './pages/LandingPage';
-import ModernChatPage from './pages/ModernChatPage';
-import SCIPPage from './pages/SCIPPage';
-import ThemeTestPage from './pages/ThemeTestPage';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { LoadingProvider, useLoading } from './context/LoadingContext';
+import LoadingExample from './example/LoadingExample';
 import './App.css';
 
-const App = () => {
+// Import existing components
+import Chat from './components/Chat';
+import Contact from './components/Contact';
+import Hero from './components/Hero';
+import TopFAQs from './components/TopFAQs';
+import LoadingScreen from './components/LoadingScreen';
+
+// Wrap LoadingScreen with loading state from context
+const LoadingWrapper: React.FC = () => {
+  const { state } = useLoading();
+  return state.isLoading ? <LoadingScreen /> : null;
+};
+
+// Main application component
+const AppContent: React.FC = () => {
   return (
-    <BrowserRouter>
+    <div className="app">
       <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/chat" element={<ModernChatPage />} />
-        <Route path="/modern-chat" element={<ModernChatPage />} />
-        <Route path="/scip" element={<SCIPPage />} />
-        <Route path="/theme-test" element={<ThemeTestPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route 
+          path="/" 
+          element={
+            <>
+              <Hero />
+              <TopFAQs />
+              <Contact />
+            </>
+          } 
+        />
+        <Route 
+          path="/chat" 
+          element={<Chat />} 
+        />
+        <Route 
+          path="/loading-demo" 
+          element={<LoadingExample />} 
+        />
       </Routes>
-    </BrowserRouter>
+      <LoadingWrapper />
+    </div>
+  );
+};
+
+// Root component with providers
+const App: React.FC = () => {
+  return (
+    <LoadingProvider>
+      <Router>
+        <AppContent />
+      </Router>
+    </LoadingProvider>
   );
 };
 
