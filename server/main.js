@@ -5,12 +5,17 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 import nodemailer from 'nodemailer';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { loggingMiddleware } from './middleware/logging.js';
+import chatLogger from './services/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Parse JSON requests
+app.use(express.json());
 
 // Constants for direct API call
 const MAX_RETRIES = 3;
@@ -91,10 +96,25 @@ const processContent = (html) => {
   }
 };
 
-// Enable CORS for development
+// Enable CORS and logging middlewares
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  next();
+});
+
+// Add logging middleware
+app.use(loggingMiddleware);
+
+// Add response logging for chat endpoints
+app.use('/api/chat', async (req, res, next) => {
+  const originalJson = res.json;
+  res.json = function(data) {
+    if (req.body && req.body.message) {
+      chatLogger.logChat(req, req.body.message, data.response || '');
+    }
+    return originalJson.apply(res, arguments);
+  };
   next();
 });
 

@@ -2,6 +2,12 @@ import express from 'express';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { loggingMiddleware } from './middleware/logging.js';
+import chatLogger from './services/logger.js';
+import dotenv from 'dotenv';
+
+// Load environment variables from .env file
+dotenv.config();
 const app = express();
 
 // Parse JSON request bodies with increased limit
@@ -11,6 +17,9 @@ app.use(express.urlencoded({
   limit: '10mb',
   parameterLimit: 10000
 }));
+
+// Add logging middleware
+app.use(loggingMiddleware);
 
 // Helper function to decode URL encoded values in both GET and POST requests
 const decodeUrlParams = (params) => {
@@ -230,16 +239,16 @@ app.post('/api/gemini/generateContent', rateLimiter, async (req, res) => {
   try {
     console.log('Received Gemini API request');
     
-    // Get API key from header or query param (preferring header for security)
-    const apiKey = req.headers['x-api-key'] || req.query.key;
+    // Get API key from environment variable
+    const apiKey = process.env.VITE_GEMINI_API_KEY;
     
     // Validate API key
     if (!apiKey) {
-      return res.status(400).json({ error: 'API key is required' });
+      return res.status(500).json({ error: 'API key not found in environment variables' });
     }
     
     if (!validateApiKey(apiKey)) {
-      return res.status(400).json({ error: 'Invalid API key format' });
+      return res.status(500).json({ error: 'Invalid API key format in environment variables' });
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
@@ -275,11 +284,41 @@ app.post('/api/gemini/generateContent', rateLimiter, async (req, res) => {
     const response = await result.response;
     console.log('Gemini API response received successfully');
 
+    const responseText = await response.text();
+    
+    // Process question and answer
+    const promptLines = req.body.prompt.split('\n');
+    const responseLines = responseText.split('\n');
+    
+    const questionIndex = promptLines.findIndex(line => line.toLowerCase().startsWith('question:'));
+    const answerIndex = responseLines.findIndex(line => line.startsWith('Answer:'));
+    
+    const cleanedPrompt = questionIndex >= 0 ?
+      promptLines[questionIndex].replace(/^question:\s*/i, '').trim() :
+      promptLines[promptLines.length - 1].trim();
+    
+    const cleanedResponse = answerIndex >= 0 ?
+      responseLines[answerIndex].replace(/^Answer:\s*/, '').trim() :
+      responseText;
+    
+    console.log('Logging chat:', { // Debug log
+      timestamp: new Date().toISOString(),
+      question: cleanedPrompt,
+      answer: cleanedResponse
+    });
+    
+    chatLogger.logChat(null, { // Use logChat method with null for req
+      timestamp: new Date().toISOString(),
+      question: cleanedPrompt,
+      answer: cleanedResponse
+    });
+    console.log('Logged chat data'); // Debug log
+    
     res.json({
       candidates: [{
         content: {
           parts: [{
-            text: response.text()
+            text: responseText
           }]
         }
       }]
