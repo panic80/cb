@@ -18,12 +18,39 @@ const EliteChatAdapterContent: React.FC = () => {
   
   // State management
   const [messages, setMessages] = useState<EliteMessage[]>([]);
+  const [fontSize, setFontSize] = useState<number>(16);
   const [isLoading, setIsLoading] = useState(false);
   const [travelInstructions, setTravelInstructions] = useState<string | null>(null);
   const [networkError, setNetworkError] = useState<string | null>(null);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [isSimplifyMode, setIsSimplifyMode] = useState(false);
+  const WELCOME_MESSAGE = `👋 Welcome to the Canadian Forces Travel Assistant!
+
+I'm here to help you understand CF Temporary Duty Travel Instructions, using official documentation to provide accurate policy information.
+
+✨ Key Features:
+• Ask about travel policies and get detailed answers
+• Use 'Simplified' mode for clearer responses
+• See source references for transparency
+• Switch between dark/light themes
+
+❗ Note: This service is in beta and continuously improving.
+
+How may I assist you with your travel-related questions today?`;
+
+  // Initialize messages with welcome message and set initial font size
+  useEffect(() => {
+    setMessages([{
+      id: generateMessageId(),
+      content: WELCOME_MESSAGE,
+      sender: 'assistant',
+      timestamp: Date.now(),
+      status: 'delivered'
+    }]);
+    // Initialize font size CSS variable
+    document.documentElement.style.setProperty('--chat-font-size', `${fontSize}px`);
+  }, []);
 
   // Load travel instructions on component mount
   useEffect(() => {
@@ -198,6 +225,23 @@ const EliteChatAdapterContent: React.FC = () => {
     setShowToast(true);
   };
 
+  // Font size control handlers
+  const handleIncreaseFontSize = () => {
+    setFontSize(prev => {
+      const newSize = Math.min(prev + 2, 24); // Max size 24px
+      document.documentElement.style.setProperty('--chat-font-size', `${newSize}px`);
+      return newSize;
+    });
+  };
+
+  const handleDecreaseFontSize = () => {
+    setFontSize(prev => {
+      const newSize = Math.max(prev - 2, 12); // Min size 12px
+      document.documentElement.style.setProperty('--chat-font-size', `${newSize}px`);
+      return newSize;
+    });
+  };
+
   // Hide toast after 3 seconds
   useEffect(() => {
     if (showToast) {
@@ -250,11 +294,47 @@ const EliteChatAdapterContent: React.FC = () => {
           title={isSimplifyMode ? 'Turn off simplified responses' : 'Turn on simplified responses'}
         >
           <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            {isSimplifyMode ? (
+              // Simple view icon (3 short lines)
+              <>
+                <path d="M4 6h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M4 12h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M4 18h7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </>
+            ) : (
+              // Detailed view icon (3 full-width lines)
+              <>
+                <path d="M4 6h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M4 12h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M4 18h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </>
+            )}
           </svg>
-          <span>{isSimplifyMode ? 'Simplified On' : 'Simplified Off'}</span>
+          <span className="simplify-label">{isSimplifyMode ? 'Simple' : 'Detailed'}</span>
         </button>
         
+        {/* Font size controls */}
+        <div className="font-size-controls">
+          <button
+            onClick={handleDecreaseFontSize}
+            className="action-button"
+            aria-label="Decrease font size"
+            title="Decrease font size"
+            disabled={fontSize <= 12}
+          >
+            <span className="font-icon small-a">A</span>
+          </button>
+          <button
+            onClick={handleIncreaseFontSize}
+            className="action-button"
+            aria-label="Increase font size"
+            title="Increase font size"
+            disabled={fontSize >= 24}
+          >
+            <span className="font-icon large-a">A</span>
+          </button>
+        </div>
+
         {/* Theme toggle */}
         <button
           className="action-button theme-button"
@@ -301,13 +381,12 @@ const EliteChatAdapterContent: React.FC = () => {
     <div className="elite-chat-adapter">
       {networkError && <NetworkErrorBanner />}
       
+      <CustomHeader />
+      
       <Chat
         initialMessages={messages}
         onMessageSent={handleSendMessage}
-        onCopyMessage={handleCopyMessage}
-        onDeleteMessage={handleDeleteMessage}
         isLoading={isLoading}
-        customHeader={<CustomHeader />}
         className="elite-chat-container"
       />
       

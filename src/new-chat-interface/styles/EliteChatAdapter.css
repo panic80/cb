@@ -1,300 +1,212 @@
-/**
- * Elite Chat Interface - Adapter Styles
- */
+:root {
+  --chat-font-size: 16px;
+}
 
 .elite-chat-adapter {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  width: 100%;
-  position: relative;
-}
-
-/* Container for the main chat component */
-.elite-chat-container {
-  flex: 1;
-  height: 100%;
-  width: 100%;
   overflow: hidden;
+  background-color: var(--background);
 }
 
-/* Custom header styling */
+/* Apply font size to chat messages and content */
+.elite-chat-container .chat-main {
+  font-size: var(--chat-font-size);
+}
+
+.message-content,
+.message-text,
+.chat-message-content,
+.message-bubble {
+  font-size: var(--chat-font-size);
+}
+
+/* Smooth transition for font size changes */
+.elite-chat-container .chat-main *,
+.message-content,
+.message-text,
+.chat-message-content,
+.message-bubble {
+  transition: font-size 0.2s ease;
+}
+
+/* Keep header text size constant */
 .elite-header {
+  font-size: 16px;
+}
+
+.elite-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1rem;
-  background-color: var(--color-bg-primary);
-  border-bottom: 1px solid var(--color-border);
-  z-index: var(--z-index-header);
-  height: 60px;
-  transition: background-color var(--transition-normal);
+  align-items: center;
+  padding: 1rem;
+  background-color: var(--background);
+  border-bottom: 1px solid var(--border);
+  height: 64px; /* Fixed height for header */
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 1rem;
 }
 
-.elite-header h1 {
-  font-size: 1rem;
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text-primary);
+.header-left h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--foreground);
   margin: 0;
 }
 
-.back-button {
+.back-button, .action-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
+  background: none;
   border: none;
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
+  padding: 0.5rem;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  border-radius: 0.375rem;
+  color: var(--foreground);
+  transition: background-color 0.2s ease;
 }
 
-.back-button:hover {
-  background-color: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-  transform: translateY(-1px);
+.back-button:hover, .action-button:hover {
+  background-color: var(--hover);
 }
 
-.back-button:active {
-  transform: translateY(0);
+.back-button svg, .action-button svg {
+  width: 1.5rem;
+  height: 1.5rem;
 }
 
-.back-button svg {
-  width: 20px;
-  height: 20px;
+.theme-button {
+  color: var(--foreground);
 }
 
-/* Simplify toggle */
-.simplify-toggle {
+.header-actions {
   display: flex;
   align-items: center;
+  gap: 0.5rem;
+}
+
+.font-size-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.5rem;
+  border-right: 1px solid var(--border);
+}
+
+.font-size-controls .action-button {
+  padding: 0.25rem;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.375rem;
+  transition: background-color 0.2s ease;
+}
+
+.font-size-controls .action-button:hover {
+  background-color: var(--hover);
+}
+
+.font-icon {
+  font-weight: bold;
+  line-height: 1;
+  user-select: none;
+}
+
+.small-a {
+  font-size: 0.875rem;
+}
+
+.large-a {
+  font-size: 1.25rem;
+}
+
+.font-size-controls .action-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  min-width: 2rem;
 }
 
 .simplify-button {
   display: flex;
   align-items: center;
-  padding: 0.375rem 0.75rem;
-  font-size: var(--font-size-small);
-  color: var(--color-text-secondary);
-  background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 1rem;
-  cursor: pointer;
-  transition: all var(--transition-fast);
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  transition: background-color 0.2s ease;
 }
 
 .simplify-button svg {
-  width: 14px;
-  height: 14px;
-  margin-right: 0.5rem;
-}
-
-.simplify-button:hover {
-  background-color: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
+  width: 1.25rem;
+  height: 1.25rem;
 }
 
 .simplify-button.active {
-  background-color: rgba(92, 124, 250, 0.15);
-  color: var(--color-accent-primary);
-  border-color: transparent;
+  background-color: var(--hover);
 }
 
-/* Support for both dark and light themes - class and attribute based */
-:root,
-[data-theme="dark"] {
-  --color-bg-primary: #121212;
-  --color-bg-secondary: #1e1e1e;
-  --color-bg-tertiary: #2d2d2d;
-  --color-text-primary: #ffffff;
-  --color-text-secondary: #e0e0e0;
-  --color-text-tertiary: #a0a0a0;
-  --color-border: #333333;
-  --color-shadow: rgba(0, 0, 0, 0.3);
-  --color-error: #e53e3e;
-  --color-success: #38a169;
+.simplify-label {
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
-[data-theme="light"] {
-  --color-bg-primary: #ffffff;
-  --color-bg-secondary: #f8f9fa;
-  --color-bg-tertiary: #e9ecef;
-  --color-text-primary: #212529;
-  --color-text-secondary: #495057;
-  --color-text-tertiary: #6c757d;
-  --color-border: #dee2e6;
-  --color-shadow: rgba(0, 0, 0, 0.1);
-  --color-error: #dc2626;
-  --color-success: #059669;
-}
-
-:root.dark .simplify-button.active,
-[data-theme="dark"] .simplify-button.active {
-  background-color: rgba(90, 103, 216, 0.25);
-}
-
-[data-theme="light"] .simplify-button.active {
-  background-color: rgba(92, 124, 250, 0.15);
-}
-
-/* Theme toggle styling */
-.action-button.theme-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: none;
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  margin-left: 0.5rem;
-}
-
-.action-button.theme-button:hover {
-  background-color: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-  transform: translateY(-1px);
-}
-
-.action-button.theme-button:active {
-  transform: translateY(0);
-}
-
-.action-button.theme-button svg {
-  width: 20px;
-  height: 20px;
-}
-
-/* Header actions container */
-.header-actions {
-  display: flex;
-  align-items: center;
-}
-
-/* Network error banner */
-.network-error-banner {
-  position: fixed;
-  top: 60px;
-  left: 0;
-  right: 0;
-  display: flex;
-  align-items: center;
-  padding: 0.75rem 1rem;
-  background-color: rgba(229, 62, 62, 0.1);
-  color: var(--color-error);
-  border-bottom: 1px solid var(--color-error);
-  z-index: var(--z-index-header);
-  font-size: var(--font-size-small);
-  animation: slide-down 0.3s ease-out forwards;
-}
-
-.network-error-banner svg {
-  width: 16px;
-  height: 16px;
-  margin-right: 0.75rem;
-  flex-shrink: 0;
-}
-
-.network-error-banner button {
-  margin-left: auto;
-  background: none;
-  border: none;
-  color: var(--color-error);
-  font-size: 1.25rem;
-  cursor: pointer;
+.font-size-display {
+  font-size: 0.875rem;
   padding: 0 0.5rem;
+  color: var(--foreground);
+  min-width: 3.5rem;
+  text-align: center;
+  user-select: none;
 }
 
-@keyframes slide-down {
-  from { transform: translateY(-100%); }
-  to { transform: translateY(0); }
+.font-size-controls .action-button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-/* Toast notification (additional styling for our custom toast) */
-.toast-notification {
-  position: fixed;
-  bottom: 1.5rem;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: var(--z-index-toast, 1000);
-  animation: toast-fade-in 0.3s ease-in-out forwards;
+.font-size-controls .action-button[disabled]:hover {
+  background-color: transparent;
 }
 
-.toast-content {
+.elite-chat-container {
+  flex: 1;
+  max-width: 1200px;
+  margin: 64px auto 0; /* Add top margin equal to header height */
+  width: 100%;
   display: flex;
-  align-items: center;
-  padding: 0.75rem 1rem;
-  background-color: var(--color-bg-primary, #ffffff);
-  color: var(--color-text-primary, #1a202c);
-  border-radius: 0.5rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  border: 1px solid var(--color-border, #e2e8f0);
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--background);
 }
 
-.toast-content svg {
-  width: 18px;
-  height: 18px;
-  margin-right: 0.75rem;
-  color: var(--color-success, #38a169);
+/* Hide the theme toggle in the chat container */
+.theme-toggle-wrapper {
+  display: none;
 }
 
-@keyframes toast-fade-in {
-  from { 
-    opacity: 0;
-    transform: translate(-50%, 1rem);
-  }
-  to { 
-    opacity: 1;
-    transform: translate(-50%, 0);
-  }
+/* Ensure chat window takes remaining space */
+.chat-main {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0; /* Required for Firefox */
 }
 
-/* Responsive adjustments */
-@media (max-width: 640px) {
-  .elite-header {
-    padding: 0.5rem 0.75rem;
-    height: 55px;
-  }
-  
-  .elite-header h1 {
-    font-size: 0.875rem;
-  }
-  
-  .back-button {
-    width: 32px;
-    height: 32px;
-  }
-  
-  .back-button svg {
-    width: 18px;
-    height: 18px;
-  }
-  
-  .simplify-button {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.75rem;
-  }
-  
-  .simplify-button svg {
-    width: 12px;
-    height: 12px;
-  }
-  
-  .network-error-banner {
-    top: 55px;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.75rem;
-  }
+/* Keep footer at bottom */
+.chat-footer {
+  position: sticky;
+  bottom: 0;
+  background-color: var(--background);
+  border-top: 1px solid var(--border);
+  padding: 1rem;
 }
