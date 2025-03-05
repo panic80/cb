@@ -271,7 +271,7 @@ export default function LandingPage() {
               </nav>
               <div className="flex justify-between items-center text-sm text-[var(--text)] opacity-50">
                 <p>© {new Date().getFullYear()} G8 Administration Hub. All rights reserved. Not affiliated with DND or CAF.</p>
-                <p>Last updated: February 26, 2025</p>
+                <p>Last updated: March 5, 2025</p>
               </div>
             </div>
           </div>
