@@ -35,7 +35,10 @@ I'm here to help you understand CF Temporary Duty Travel Instructions, using off
 • See source references for transparency
 • Switch between dark/light themes
 
+⚠️ Important: AI may give out wrong answers. Always check with an FSA for complete and accurate policy information.
+
 ❗ Note: This service is in beta and continuously improving.
+Last updated: March 5, 2025
 
 How may I assist you with your travel-related questions today?`;
 
@@ -281,7 +284,7 @@ How may I assist you with your travel-related questions today?`;
             <path d="M19 12H5M12 19L5 12L12 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </button>
-        <h1>Canadian Forces Travel Assistant</h1>
+        <h1>Canadian Forces Travel Assistant (BETA)</h1>
       </div>
       
       <div className="header-actions">
@@ -376,6 +379,16 @@ How may I assist you with your travel-related questions today?`;
       </div>
     </div>
   );
+
+  // Update header background color based on theme
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'light') {
+      root.style.setProperty('--header-bg', '#f5f5f5');
+    } else {
+      root.style.setProperty('--header-bg', '#2a2a2a');
+    }
+  }, [theme]);
 
   return (
     <div className="elite-chat-adapter">

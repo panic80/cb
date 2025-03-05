@@ -46,9 +46,36 @@
   justify-content: space-between;
   align-items: center;
   padding: 1rem;
-  background-color: var(--background);
+  background-color: var(--header-bg, var(--background));
   border-bottom: 1px solid var(--border);
   height: 64px; /* Fixed height for header */
+}
+
+@media (max-width: 768px) {
+  .elite-header {
+    padding: 0.5rem;
+  }
+
+  .header-left h1 {
+    display: none;
+  }
+
+  .header-actions {
+    flex: 1;
+    justify-content: flex-end;
+  }
+
+  .simplify-label {
+    display: none;
+  }
+
+  .font-size-controls {
+    padding: 0 0.25rem;
+  }
+
+  .simplify-button {
+    padding: 0.5rem;
+  }
 }
 
 .header-left {
