@@ -1,0 +1,148 @@
+// Cache implementation with IndexedDB for better performance and offline support
+const DB_NAME = 'travel-instructions-cache';
+const STORE_NAME = 'instructions';
+const CACHE_KEY = 'travel-data';
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds for optimal data freshness
+
+// Initialize IndexedDB with robust error handling and version management
+const initDB = () => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+  });
+};
+
+// Get cached data from IndexedDB with timestamp validation and error recovery
+const getCachedData = async () => {
+  try {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get(CACHE_KEY);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const data = request.result;
+        if (data && (Date.now() - data.timestamp < CACHE_DURATION)) {
+          resolve(data.content);
+        } else {
+          resolve(null); // Return null for expired or non-existent cache
+        }
+      };
+    });
+  } catch (error) {
+    console.error('Error accessing cache:', error);
+    return null; // Graceful degradation on cache access failure
+  }
+};
+
+// Store data in IndexedDB with comprehensive error handling and atomic transactions
+const setCachedData = async (content) => {
+  try {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.put({
+        content,
+        timestamp: Date.now()
+      }, CACHE_KEY);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  } catch (error) {
+    console.error('Error updating cache:', error);
+  }
+};
+
+// Memory cache for ultra-fast access during active sessions
+let memoryCache = null;
+let memoryCacheTimestamp = 0;
+
+// Fetch with timeout, retry logic, and progressive backoff
+const fetchWithRetry = async (url, options = {}, retries = 3) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000); // 5-second timeout for responsive UX
+
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return response;
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // Progressive backoff
+    }
+  }
+};
+
+// Main function to fetch travel instructions with multi-layer caching and fallback strategies
+export const fetchTravelInstructions = async () => {
+  // Check memory cache first for instant response
+  if (memoryCache && (Date.now() - memoryCacheTimestamp < CACHE_DURATION)) {
+    return memoryCache;
+  }
+
+  // Check IndexedDB cache for offline support
+  const cachedData = await getCachedData();
+  if (cachedData) {
+    memoryCache = cachedData;
+    memoryCacheTimestamp = Date.now();
+    return cachedData;
+  }
+
+  try {
+    console.log('Making request to travel instructions API...');
+    const response = await fetchWithRetry('/api/travel-instructions');
+    const data = await response.json();
+    
+    if (data.stale) {
+      console.warn('Received stale data from server');
+    }
+
+    console.log('Travel instructions data parsed successfully');
+    
+    // Process and clean the instructions for consistent formatting
+    const instructions = data.content
+      .split('\n')
+      .filter(line => line.trim().length > 0)
+      .join('\n');
+
+    // Update both caches for optimal performance
+    memoryCache = instructions;
+    memoryCacheTimestamp = Date.now();
+    await setCachedData(instructions);
+
+    return instructions;
+  } catch (error) {
+    console.error('Error fetching travel instructions:', error);
+    
+    // Graceful degradation: use memory cache as last resort
+    if (memoryCache) {
+      console.log('Using expired memory cache as fallback');
+      return memoryCache;
+    }
+    
+    throw new Error('Unable to provide travel instruction information at this time. Please try again later.');
+  }
+};
