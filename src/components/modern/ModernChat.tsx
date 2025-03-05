@@ -98,7 +98,9 @@ const ModernChat: React.FC = () => {
   useEffect(() => {
     const loadInstructions = async () => {
       try {
+        console.log('[DEBUG] Fetching travel instructions...');
         const instructions = await fetchTravelInstructions();
+        console.log('[DEBUG] Travel instructions loaded:', instructions ? 'Present' : 'Missing');
         setTravelInstructions(instructions);
       } catch (error) {
         console.error('Failed to load travel instructions:', error);
@@ -197,7 +199,13 @@ const ModernChat: React.FC = () => {
       scrollToBottom('auto'); // Instant scroll when sending
       
       try {
+        console.log('[DEBUG] Handle send - Travel instructions status:', {
+          present: !!travelInstructions,
+          length: travelInstructions?.length || 0
+        });
+        
         if (travelInstructions) {
+          console.log('[DEBUG] Sending message to Gemini...');
           const response = await sendToGemini(input, isSimplifyMode, 'models/gemini-2.0-flash-001', travelInstructions as any);
           const botMessage: Message = {
             id: generateMessageId(),
@@ -328,7 +336,7 @@ const ModernChat: React.FC = () => {
             <div className="network-error-banner">
               <ErrorIcon /> {networkError}
               <button onClick={() => setNetworkError(null)} aria-label="Dismiss">
-                √ó
+                ù
               </button>
             </div>
           )}
