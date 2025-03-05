@@ -64,11 +64,6 @@ export default function LandingPage() {
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.setAttribute('data-theme', theme);
-    
-    // Force a repaint to ensure theme changes are applied immediately
-    document.documentElement.style.display = 'none';
-    document.documentElement.offsetHeight; // Trigger reflow
-    document.documentElement.style.display = '';
   }, [theme]);
 
   useEffect(() => {
@@ -86,6 +81,11 @@ export default function LandingPage() {
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
   console.log('LandingPage rendered', { theme, showModal, showPrivacyModal, showAboutModal });
+  useEffect(() => {
+    const computedFont = window.getComputedStyle(document.body).getPropertyValue('font-family');
+    console.log('Computed font-family on landing page:', computedFont);
+  }, []);
+
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [showSOPSubmodal, setShowSOPSubmodal] = useState(false);
   const [showOnboardingSubmodal, setShowOnboardingSubmodal] = useState(false);
