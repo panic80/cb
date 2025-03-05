@@ -241,15 +241,27 @@ app.post('/api/gemini/generateContent', rateLimiter, async (req, res) => {
     
     // Get API key from environment variable
     const apiKey = process.env.VITE_GEMINI_API_KEY;
+    console.log('[DEBUG] API Key Check:', {
+      present: !!apiKey,
+      length: apiKey?.length || 0,
+      startsWithAIza: apiKey?.startsWith('AIza') || false
+    });
     
     // Validate API key
     if (!apiKey) {
+      console.error('[DEBUG] No API key found in environment variables');
       return res.status(500).json({ error: 'API key not found in environment variables' });
     }
     
     if (!validateApiKey(apiKey)) {
+      console.error('[DEBUG] Invalid API key format:', {
+        length: apiKey.length,
+        startsWithAIza: apiKey.startsWith('AIza')
+      });
       return res.status(500).json({ error: 'Invalid API key format in environment variables' });
     }
+    
+    console.log('[DEBUG] API key validation passed');
 
     const genAI = new GoogleGenerativeAI(apiKey);
     

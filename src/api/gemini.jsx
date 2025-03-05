@@ -130,12 +130,15 @@ export const callGeminiViaProxy = async (
   enableRetry = true
 ) => {
   // Validate API key
+  console.log('[DEBUG] Validating API key:', API_KEY ? 'Present' : 'Missing');
   if (!validateApiKey(API_KEY)) {
+    console.error('[DEBUG] API key validation failed');
     throw new ChatError(ChatErrorType.API_KEY, {
       message: 'Missing or invalid Gemini API key',
       details: 'Please check that VITE_GEMINI_API_KEY is properly set in your .env file'
     });
   }
+  console.log('[DEBUG] API key validation passed');
   
   const promptText = createPrompt(message, isSimplified, instructions);
   const modelName = "gemini-2.0-flash";
@@ -164,14 +167,26 @@ export const callGeminiViaProxy = async (
   
   while (true) {
     try {
+      console.log('[DEBUG] Sending request to Gemini API:', {
+        url,
+        method: "POST",
+        headers: { ...headers, "X-API-KEY": "[REDACTED]" }
+      });
+      
       const response = await fetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(requestBody)
       });
 
+      console.log('[DEBUG] Received response:', {
+        status: response.status,
+        statusText: response.statusText
+      });
+
       // Handle different error status codes
       if (!response.ok) {
+        console.error('[DEBUG] Response not OK:', response.status, response.statusText);
         // Special handling for rate limiting
         if (response.status === 429) {
           throw new Error('Rate limit exceeded. Please try again later.');
@@ -190,13 +205,19 @@ export const callGeminiViaProxy = async (
 
       try {
         const data = await response.json();
-        console.log('Gemini API Response (Proxy):', JSON.stringify(data, null, 2));
+        console.log('[DEBUG] Parsing response data:', {
+          hasData: !!data,
+          hasCandidates: !!data?.candidates,
+          candidateCount: data?.candidates?.length
+        });
 
         if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+          console.error('[DEBUG] Invalid response structure:', JSON.stringify(data, null, 2));
           throw new Error('Invalid response format from Gemini API');
         }
 
         const text = data.candidates[0].content.parts[0].text;
+        console.log('[DEBUG] Successfully parsed response text:', text.substring(0, 50) + '...');
         return parseApiResponse(text, isSimplified);
       } catch (parseError) {
         if (parseError instanceof SyntaxError) {
