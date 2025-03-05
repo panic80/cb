@@ -4,6 +4,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Policy Assistant</title>
+<style>
+  html { visibility: hidden; }
+</style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=optional" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=optional">
+    </noscript>
+    <style>
+      /* Hide the entire HTML until the Inter font is loaded to prevent FOUT */
+      html { visibility: hidden; }
+    </style>
+    <script>
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(function() {
+          document.documentElement.style.visibility = 'visible';
+        });
+      } else {
+        window.addEventListener('load', function() {
+          document.documentElement.style.visibility = 'visible';
+        });
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

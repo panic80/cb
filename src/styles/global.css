@@ -14,10 +14,11 @@
     --border: #e2e8f0;
     --border-rgb: 226, 232, 240;
 
-    transition: 
+    transition:
       background-color var(--theme-transition),
       color var(--theme-transition),
-      border-color var(--theme-transition);
+      border-color var(--theme-transition),
+      font-family 0s;
   }
 
   /* Dark theme */
@@ -32,10 +33,11 @@
     --border: #334155;
     --border-rgb: 51, 65, 85;
 
-    transition: 
+    transition:
       background-color var(--theme-transition),
       color var(--theme-transition),
-      border-color var(--theme-transition);
+      border-color var(--theme-transition),
+      font-family 0s;
   }
 }
 
@@ -61,4 +63,9 @@ body {
 ::selection {
   background-color: var(--primary);
   color: white;
+}
+/* Fix: Right justify arrow for onboarding guide submodal under administrative tools */
+.onboarding-guide-submodal .arrow {
+  right: 0;
+  left: auto;
 }
