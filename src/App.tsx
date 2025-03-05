@@ -4,12 +4,10 @@ import { LoadingProvider, useLoading } from './context/LoadingContext';
 import LoadingExample from './example/LoadingExample';
 import './App.css';
 
-// Import existing components
+// Import components
 import Chat from './components/Chat';
-import Contact from './components/Contact';
-import Hero from './components/Hero';
-import TopFAQs from './components/TopFAQs';
 import LoadingScreen from './components/LoadingScreen';
+import LandingPage from './pages/LandingPage';
 
 // Wrap LoadingScreen with loading state from context
 const LoadingWrapper: React.FC = () => {
@@ -24,13 +22,7 @@ const AppContent: React.FC = () => {
       <Routes>
         <Route 
           path="/" 
-          element={
-            <>
-              <Hero />
-              <TopFAQs />
-              <Contact />
-            </>
-          } 
+          element={<LandingPage />}
         />
         <Route 
           path="/chat" 

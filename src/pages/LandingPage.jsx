@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   QuestionMarkCircleIcon,
@@ -7,9 +7,35 @@ import {
   BuildingLibraryIcon,
   InformationCircleIcon,
   EnvelopeIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
+  ChevronDownIcon
 } from '@heroicons/react/24/solid';
-import '../styles/sticky-footer.css'; // Import the sticky footer CSS
+import '../styles/sticky-footer.css';
+import '../styles/landing.css';
+
+const useIntersectionObserver = (options = {}) => {
+  const [isVisible, setIsVisible] = useState(false);
+  const elementRef = useRef(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(([entry]) => {
+      setIsVisible(entry.isIntersecting);
+    }, { threshold: 0.1, ...options });
+
+    const currentElement = elementRef.current;
+    if (currentElement) {
+      observer.observe(currentElement);
+    }
+
+    return () => {
+      if (currentElement) {
+        observer.unobserve(currentElement);
+      }
+    };
+  }, [options]);
+
+  return [elementRef, isVisible];
+};
 
 export default function LandingPage() {
   // Initialize theme from localStorage or system preference
@@ -20,14 +46,19 @@ export default function LandingPage() {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
 
-  // Toggle between light and dark
-  const toggleTheme = () => {
+  // Toggle between light and dark with smooth transition
+  const toggleTheme = useCallback(() => {
     setTheme(prev => {
       const newTheme = prev === 'light' ? 'dark' : 'light';
       localStorage.setItem('elite-chat-theme', newTheme);
       return newTheme;
     });
-  };
+  }, []);
+
+  // Intersection observers for animations
+  const [heroRef, heroVisible] = useIntersectionObserver();
+  const [featuresRef, featuresVisible] = useIntersectionObserver();
+  const [toolsRef, toolsVisible] = useIntersectionObserver();
 
   // Update document when theme changes
   useEffect(() => {
@@ -54,6 +85,7 @@ export default function LandingPage() {
   const [showModal, setShowModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
+  console.log('LandingPage rendered', { theme, showModal, showPrivacyModal, showAboutModal });
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [showSOPSubmodal, setShowSOPSubmodal] = useState(false);
   const [showOnboardingSubmodal, setShowOnboardingSubmodal] = useState(false);
@@ -106,7 +138,7 @@ export default function LandingPage() {
   };
 
   return (
-    <>
+    <div className="root-container">
       <div className="flex flex-col min-h-screen">
         <div className="flex-grow">
           <div className="bg-[var(--background)] text-[var(--text)] pt-12">
@@ -132,76 +164,177 @@ export default function LandingPage() {
               </button>
             </div>
             
-            {/* Hero Section */}
-            <main className="flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 pb-8 md:pb-12">
-              <div className="w-full max-w-4xl mx-auto text-center">
-                <div className="mb-10 flex justify-center">
-                  <BuildingLibraryIcon className="w-24 h-24 text-[var(--primary)]" aria-hidden="true" />
+            {/* Hero Section with Elegant Gradient Background */}
+            <main
+              ref={heroRef}
+              className={`relative min-h-[90vh] flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 pb-8 md:pb-12 hero-gradient overflow-hidden transition-opacity duration-1000 ${
+                heroVisible ? 'opacity-100' : 'opacity-0'
+              }`}
+            >
+              {/* Decorative Background Elements */}
+              <div className="absolute inset-0 pointer-events-none">
+                <div className="absolute w-[600px] h-[600px] rounded-full blur-3xl opacity-20 floating"
+                  style={{
+                    background: `radial-gradient(circle at center, var(--primary) 0%, transparent 70%)`,
+                    top: '-10%',
+                    left: '-10%',
+                  }}
+                />
+                <div className="absolute w-[600px] h-[600px] rounded-full blur-3xl opacity-20 floating"
+                  style={{
+                    background: `radial-gradient(circle at center, var(--primary) 0%, transparent 70%)`,
+                    bottom: '-10%',
+                    right: '-10%',
+                    animationDelay: '-1.5s',
+                  }}
+                />
+              </div>
+
+              <div className="w-full max-w-4xl mx-auto text-center relative z-10">
+                {/* Animated Icon */}
+                <div
+                  className="mb-10 flex justify-center transform transition-all duration-500 hover:scale-110"
+                >
+                  <BuildingLibraryIcon
+                    className="w-24 h-24 text-[var(--primary)] animate-scale"
+                    style={{
+                      filter: 'drop-shadow(0 0 15px rgba(var(--primary-rgb), 0.3))',
+                    }}
+                    aria-hidden="true"
+                  />
                 </div>
-                <h1 className="text-4xl md:text-6xl font-semibold mb-4 animate-fade-in" role="heading" aria-level="1">
-                  32 CBG G8 Administration Hub
-                  <span className="block text-xl md:text-2xl mt-4 text-[var(--text-secondary)] font-normal">Streamlined Military Administration Portal</span>
-                </h1>
-                <p className="text-xl text-center max-w-2xl mx-auto mt-6 mb-8 text-[var(--text)] opacity-80">
-                  Your comprehensive digital gateway to administrative resources, claims processing, and policy information. Designed to simplify and expedite your administrative tasks.
-                </p>
+
+                {/* Title with Enhanced Typography */}
+                <div className="space-y-6">
+                  <h1
+                    className="text-5xl md:text-7xl font-bold mb-4 animate-fade-up gradient-text"
+                    style={{ animationDelay: '0.2s' }}
+                    role="heading"
+                    aria-level="1"
+                  >
+                    32 CBG G8 Administration Hub
+                    <span
+                      className="block text-xl md:text-2xl mt-6 text-[var(--text-secondary)] font-normal animate-fade-up"
+                      style={{ animationDelay: '0.4s' }}
+                    >
+                      Streamlined Military Administration Portal
+                    </span>
+                  </h1>
+
+                  <p
+                    className="text-xl md:text-2xl text-center max-w-2xl mx-auto text-[var(--text)] opacity-90 leading-relaxed animate-fade-up glass p-6 rounded-2xl"
+                    style={{ animationDelay: '0.6s' }}
+                  >
+                    Your comprehensive digital gateway to administrative resources, claims processing, and policy information. Designed to simplify and expedite your administrative tasks.
+                  </p>
+                </div>
+              </div>
+
+              {/* Elegant Scroll Indicator */}
+              <div className="scroll-indicator animate-fade-in" style={{ animationDelay: '1s' }}>
+                <ChevronDownIcon className="w-8 h-8 text-[var(--text-secondary)] animate-bounce" />
               </div>
             </main>
 
-            {/* Features Section */}
-            <section className="pt-2 pb-16 md:pt-4 md:pb-24 px-4 sm:px-6 lg:px-8 bg-[var(--background-secondary)]" aria-label="Features">
-              <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
+            {/* Features Section with Enhanced Design */}
+            <section
+              ref={featuresRef}
+              className={`relative py-24 px-4 sm:px-6 lg:px-8 bg-[var(--background-secondary)] transition-all duration-1000 transform ${
+                featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
+              }`}
+              aria-label="Features"
+            >
+              {/* Decorative Background Pattern */}
+              <div className="absolute inset-0 opacity-10 pointer-events-none">
+                <div className="absolute inset-0" style={{
+                  backgroundImage: `radial-gradient(var(--primary) 1px, transparent 1px)`,
+                  backgroundSize: '40px 40px'
+                }} />
+              </div>
+
+              <div className="max-w-5xl mx-auto">
+                </div>
+<h2 className="text-3xl md:text-4xl font-bold text-center mb-16 animate-fade-up gradient-text">
+                  Essential Tools & Resources
+                </h2>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 lg:gap-12">
                 <Link
                   to="/chat"
-                  className="p-4 rounded-lg bg-[var(--card)] transform transition-all duration-300 hover:scale-115 hover:shadow-[0_20px_50px_rgba(8,_112,_184,_0.7)] hover:border-4 hover:border-blue-500 cursor-pointer"
+                  className={`group card-hover glass rounded-2xl p-8 transition-all duration-1000 transform ${
+                    featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
+                  }`}
+                  style={{ transitionDelay: '0.2s' }}
                   aria-label="Access Policy Chat Beta"
                 >
-                  <div className="flex flex-col items-center text-center">
-                    <div className="mb-3">
-                      <QuestionMarkCircleIcon className="w-12 h-12 text-[var(--primary)]" aria-hidden="true" />
+                  <div className="flex flex-col items-center text-center space-y-6">
+                    <div className="relative">
+                      <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
+                      <div className="relative transform transition-all duration-500 group-hover:scale-110">
+                        <QuestionMarkCircleIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
+                      </div>
                     </div>
-                    <h3 className="text-xl font-medium mb-3 text-[var(--text)]">
-                      Policy Assistant
-                    </h3>
-                    <p className="text-[var(--text)] opacity-80">
-                      Interactive AI-powered guide for policy inquiries and administrative procedures. <span className="text-amber-500">(Beta)</span>
-                    </p>
+                    <div className="space-y-4">
+                      <h3 className="text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                        Policy Assistant
+                      </h3>
+                      <p className="text-[var(--text)] opacity-80 leading-relaxed">
+                        Interactive AI-powered guide for policy inquiries and administrative procedures.
+                        <span className="text-amber-500 ml-1 font-medium">(Beta)</span>
+                      </p>
+                    </div>
                   </div>
                 </Link>
                 <a
                   href="https://apps.powerapps.com/play/e/default-325b4494-1587-40d5-bb31-8b660b7f1038/a/75e3789b-9c1d-4feb-9515-20665ab7d6e8?tenantId=325b4494-1587-40d5-bb31-8b660b7f1038&amp;hint=c63b9850-8dc3-44f2-a186-f215cf7de716&amp;sourcetime=1738854913080"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="p-4 rounded-lg bg-[var(--card)] transform transition-all duration-300 hover:scale-115 hover:shadow-[0_20px_50px_rgba(8,_112,_184,_0.7)] hover:border-4 hover:border-blue-500 cursor-pointer"
+                  className={`group card-hover glass rounded-2xl p-8 transition-all duration-1000 transform ${
+                    featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
+                  }`}
+                  style={{ transitionDelay: '0.4s' }}
                   aria-label="Access SCIP Platform"
                 >
-                  <div className="flex flex-col items-center text-center">
-                    <div className="mb-3">
-                      <DocumentTextIcon className="w-12 h-12 text-[var(--primary)]" aria-hidden="true" />
+                  <div className="flex flex-col items-center text-center space-y-6">
+                    <div className="relative">
+                      <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
+                      <div className="relative transform transition-all duration-500 group-hover:scale-110">
+                        <DocumentTextIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
+                      </div>
                     </div>
-                    <h3 className="text-xl font-medium mb-3 text-[var(--text)]">
-                      SCIP Portal
-                    </h3>
-                    <p className="text-[var(--text)] opacity-80">
-                      Streamlined Claims Interface Platform for efficient digital submission and processing of administrative claims.
-                    </p>
+                    <div className="space-y-4">
+                      <h3 className="text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                        SCIP Portal
+                      </h3>
+                      <p className="text-[var(--text)] opacity-80 leading-relaxed">
+                        Streamlined Claims Interface Platform for efficient digital submission and processing of administrative claims.
+                      </p>
+                    </div>
                   </div>
                 </a>
                 <div
                   onClick={() => setShowModal(true)}
-                  className="p-4 rounded-lg bg-[var(--card)] transform transition-all duration-300 hover:scale-115 hover:shadow-[0_20px_50px_rgba(8,_112,_184,_0.7)] hover:border-4 hover:border-blue-500 cursor-pointer"
+                  className={`group card-hover glass rounded-2xl p-8 transition-all duration-1000 transform cursor-pointer ${
+                    featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
+                  }`}
+                  style={{ transitionDelay: '0.6s' }}
                   aria-label="Open Other Tools"
                 >
-                  <div className="flex flex-col items-center text-center">
-                    <div className="mb-3">
-                      <WindowIcon className="w-12 h-12 text-[var(--primary)]" aria-hidden="true" />
+                  <div className="flex flex-col items-center text-center space-y-6">
+                    <div className="relative">
+                      <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
+                      <div className="relative transform transition-all duration-500 group-hover:scale-110">
+                        <WindowIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
+                      </div>
                     </div>
-                    <h3 className="text-xl font-medium mb-3 text-[var(--text)]">
-                      Administrative Tools
-                    </h3>
-                    <p className="text-[var(--text)] opacity-80">
-                      Essential resources including Kiosk Manager, SOPs, and operational guidelines.
-                    </p>
+                    <div className="space-y-4">
+                      <h3 className="text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                        Administrative Tools
+                      </h3>
+                      <p className="text-[var(--text)] opacity-80 leading-relaxed">
+                        Essential resources including Kiosk Manager, SOPs, and operational guidelines.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -239,7 +372,7 @@ export default function LandingPage() {
                 </div>
               </nav>
               <div className="text-center text-xs text-[var(--text)] opacity-50 mt-1">
-                <p>© {new Date().getFullYear()} G8 Administration Hub</p>
+                <p>&copy; {new Date().getFullYear()} G8 Administration Hub</p>
               </div>
             </div>
             
@@ -270,7 +403,7 @@ export default function LandingPage() {
                 </div>
               </nav>
               <div className="flex justify-between items-center text-sm text-[var(--text)] opacity-50">
-                <p>© {new Date().getFullYear()} G8 Administration Hub. All rights reserved. Not affiliated with DND or CAF.</p>
+                <p>&copy; {new Date().getFullYear()} G8 Administration Hub. All rights reserved. Not affiliated with DND or CAF.</p>
                 <p>Last updated: March 5, 2025</p>
               </div>
             </div>
@@ -458,7 +591,7 @@ export default function LandingPage() {
                               <a href="https://scribehow.com/embed-preview/SCIP_Mobile_Onboarding__qa62L6ezQi2nTzcp3nqq1Q?as=video" className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2">SCIP Mobile Onboarding Guide</a>
                              </li>
                              <li className="py-2">
-                               {/* <a href="/scip-desktop" className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2">SCIP Desktop Onboarding Guide</a> */}
+                               <a href="/scip-desktop" className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2">SCIP Desktop Onboarding Guide (Coming Soon)</a>
                              </li>
                            </ul>
                          </div>
@@ -609,13 +742,13 @@ export default function LandingPage() {
                 </p>
                 <h3 className="font-semibold mb-2">Currently Available</h3>
                 <ul className="list-disc list-inside mb-4">
-                  <li>SCIP – Your centralized portal for financial and administrative functions</li>
-                  <li>SOPs – Standard Operating Procedures for day-to-day reference</li>
-                  <li>Onboarding Guide – A step-by-step manual to welcome and orient new members</li>
+                  <li>SCIP &ndash; Your centralized portal for financial and administrative functions</li>
+                  <li>SOPs &ndash; Standard Operating Procedures for day-to-day reference</li>
+                  <li>Onboarding Guide &ndash; A step-by-step manual to welcome and orient new members</li>
                 </ul>
                 <h3 className="font-semibold mb-2">Coming Soon</h3>
                 <ul className="list-disc list-inside mb-4">
-                  <li>Unofficial Policy Chatbot – An interactive tool designed to answer your questions about claims and travel entitlements, referencing the CFTDTI and NJC websites</li>
+                  <li>Unofficial Policy Chatbot &ndash; An interactive tool designed to answer your questions about claims and travel entitlements, referencing the CFTDTI and NJC websites</li>
                 </ul>
                 <h3 className="font-semibold mb-2">Privacy & Contact</h3>
                 <p className="mb-4">
@@ -637,6 +770,6 @@ export default function LandingPage() {
           </div>
         </>
       )}
-    </>
+</div>
   );
 }
