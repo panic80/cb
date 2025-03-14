@@ -459,28 +459,8 @@ export default function LandingPage() {
 
               <div className="p-6">
                 <ul className="divide-y divide-[var(--border)]">
-                  <li className="py-3 first:pt-0">
-                    <a 
-                      href="https://fss-kiosk.replit.app" 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
-                      className="flex items-center p-3 rounded-lg hover:bg-[var(--background-secondary)] transition-all duration-200 group"
-                    >
-                      <div className="p-2 rounded-lg bg-[var(--background-secondary)] group-hover:bg-[var(--primary)] transition-colors">
-                        <WindowIcon className="w-6 h-6 text-[var(--primary)] group-hover:text-white" />
-                      </div>
-                      <div className="ml-4">
-                        <span className="block font-medium group-hover:text-[var(--primary)] transition-colors">Kiosk Manager</span>
-                        <span className="text-sm text-[var(--text-secondary)]">Manage kiosk settings and content</span>
-                      </div>
-                      <svg className="w-5 h-5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </a>
-                  </li>
-
                   {/* Administrative Tools Button */}
-                  <li className="py-3 last:pb-0 relative group/item">
+                  <li className="py-3 first:pt-0 relative group/item">
                     <div
                       onClick={(e) => {
                         e.preventDefault();
