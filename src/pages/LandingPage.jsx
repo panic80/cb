@@ -9,7 +9,9 @@ import {
   EnvelopeIcon,
   ShieldCheckIcon,
   ChevronDownIcon,
-  UserGroupIcon
+  UserGroupIcon,
+  CogIcon,
+  WrenchScrewdriverIcon
 } from '@heroicons/react/24/solid';
 import '../styles/sticky-footer.css';
 import '../styles/landing.css';
@@ -344,7 +346,7 @@ export default function LandingPage() {
                       <div className="relative">
                         <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
                         <div className="relative transform transition-all duration-500 group-hover:scale-110">
-                          <DocumentTextIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
+                          <WrenchScrewdriverIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
                         </div>
                       </div>
                       <div className="space-y-4">
