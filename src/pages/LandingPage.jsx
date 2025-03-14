@@ -39,6 +39,13 @@ const useIntersectionObserver = (options = {}) => {
 };
 
 export default function LandingPage() {
+  // Force reload on each visit unless it's already a reload
+  useEffect(() => {
+    if (window.performance && window.performance.navigation.type === window.performance.navigation.TYPE_NAVIGATE) {
+      window.location.reload();
+    }
+  }, []);
+
   // Initialize theme from localStorage or system preference
   const [theme, setTheme] = useState(() => {
     const storedTheme = localStorage.getItem('elite-chat-theme');
@@ -216,7 +223,7 @@ export default function LandingPage() {
                     className="text-xl md:text-2xl text-center max-w-2xl mx-auto text-[var(--text)] opacity-90 leading-relaxed animate-fade-up glass p-6 rounded-2xl"
                     style={{ animationDelay: '0.6s' }}
                   >
-                    Your comprehensive digital gateway to administrative resources, claims processing, and policy information. Designed to simplify and expedite your administrative tasks.
+                    Your comprehensive digital gateway to administrative resources, claims processing, and policy information. Designed to simplify and expedite your financial administrative tasks.
                   </p>
                 </div>
               </div>
@@ -416,7 +423,7 @@ export default function LandingPage() {
                   </nav>
                   <div className="flex justify-between items-center text-sm text-[var(--text)] opacity-50">
                     <p>&copy; {new Date().getFullYear()} G8 Administration Hub. All rights reserved. Not affiliated with DND or CAF.</p>
-                    <p>Last updated: March 5, 2025</p>
+                    <p>Last updated: March 14, 2025</p>
                   </div>
                 </div>
               </div>
