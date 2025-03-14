@@ -16,6 +16,7 @@ const ModernChatPage = lazy(() => import('./pages/ModernChatPage'));
 const ImprovedChatDemo = lazy(() => import('./pages/ImprovedChatDemo'));
 const ThemeTestPage = lazy(() => import('./pages/ThemeTestPage'));
 const LoadingDebugPage = lazy(() => import('./pages/LoadingDebugPage'));
+const OPIPage = lazy(() => import('./pages/OPIPage'));
 
 // Prefetch components
 const prefetchComponent = (importFn) => {
@@ -212,6 +213,11 @@ function App() {
             <Route path="/" element={
               <Suspense fallback={<div className="min-h-screen bg-background" />}>
                 <LandingPage />
+              </Suspense>
+            } />
+            <Route path="/opi" element={
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
+                <OPIPage />
               </Suspense>
             } />
             <Route
