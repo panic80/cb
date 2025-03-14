@@ -8,7 +8,8 @@ import {
   InformationCircleIcon,
   EnvelopeIcon,
   ShieldCheckIcon,
-  ChevronDownIcon
+  ChevronDownIcon,
+  UserGroupIcon
 } from '@heroicons/react/24/solid';
 import '../styles/sticky-footer.css';
 import '../styles/landing.css';
@@ -58,7 +59,6 @@ export default function LandingPage() {
   // Intersection observers for animations
   const [heroRef, heroVisible] = useIntersectionObserver();
   const [featuresRef, featuresVisible] = useIntersectionObserver();
-  const [toolsRef, toolsVisible] = useIntersectionObserver();
 
   // Update document when theme changes
   useEffect(() => {
@@ -94,15 +94,6 @@ export default function LandingPage() {
   const sopSubmodalRef = useRef(null);
   const onboardingSubmodalRef = useRef(null);
 
-  useEffect(() => {
-    const handleResize = () => {
-      setWindowWidth(window.innerWidth);
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-  
   // Handle clicks outside submodals
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -142,7 +133,7 @@ export default function LandingPage() {
       <div className="flex flex-col min-h-screen">
         <div className="flex-grow">
           <div className="bg-[var(--background)] text-[var(--text)] pt-12">
-            {/* Theme Toggle - Positioned more prominently */}
+            {/* Theme Toggle */}
             <div className="fixed top-4 right-4 z-50">
               <button
                 onClick={toggleTheme}
@@ -164,7 +155,7 @@ export default function LandingPage() {
               </button>
             </div>
             
-            {/* Hero Section with Elegant Gradient Background */}
+            {/* Hero Section */}
             <main
               ref={heroRef}
               className={`relative min-h-[90vh] flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 pb-8 md:pb-12 hero-gradient overflow-hidden transition-opacity duration-1000 ${
@@ -236,7 +227,7 @@ export default function LandingPage() {
               </div>
             </main>
 
-            {/* Features Section with Enhanced Design */}
+            {/* Features Grid Section */}
             <section
               ref={featuresRef}
               className={`relative py-24 px-4 sm:px-6 lg:px-8 bg-[var(--background-secondary)] transition-all duration-1000 transform ${
@@ -244,189 +235,202 @@ export default function LandingPage() {
               }`}
               aria-label="Features"
             >
-              {/* Decorative Background Pattern */}
-              <div className="absolute inset-0 opacity-10 pointer-events-none">
-                <div className="absolute inset-0" style={{
-                  backgroundImage: `radial-gradient(var(--primary) 1px, transparent 1px)`,
-                  backgroundSize: '40px 40px'
-                }} />
-              </div>
-
-              <div className="max-w-5xl mx-auto">
-                </div>
-<h2 className="text-3xl md:text-4xl font-bold text-center mb-16 animate-fade-up gradient-text">
+              <div className="mx-auto">
+                <h2 className="text-3xl md:text-4xl font-bold text-center mb-16 animate-fade-up gradient-text">
                   Essential Tools & Resources
                 </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 lg:gap-8 max-w-screen-2xl mx-auto">
+                  {/* Policy Assistant Card */}
+                  <Link
+                    to="/chat"
+                    className={`group card-hover glass rounded-2xl p-8 transition-all duration-1000 transform w-full md:min-w-[350px] ${
+                      featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
+                    }`}
+                    style={{ transitionDelay: '0.2s' }}
+                    aria-label="Access Policy Chat Beta"
+                  >
+                    <div className="flex flex-col items-center text-center space-y-6">
+                      <div className="relative">
+                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
+                        <div className="relative transform transition-all duration-500 group-hover:scale-110">
+                          <QuestionMarkCircleIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
+                        </div>
+                      </div>
+                      <div className="space-y-4">
+                        <h3 className="text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                          Policy Assistant
+                        </h3>
+                        <p className="text-[var(--text)] opacity-80 leading-relaxed">
+                          Interactive AI-powered guide for policy inquiries and administrative procedures.
+                          <span className="text-amber-500 ml-1 font-medium">(Beta)</span>
+                        </p>
+                      </div>
+                    </div>
+                  </Link>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 lg:gap-12">
-                <Link
-                  to="/chat"
-                  className={`group card-hover glass rounded-2xl p-8 transition-all duration-1000 transform ${
-                    featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
-                  }`}
-                  style={{ transitionDelay: '0.2s' }}
-                  aria-label="Access Policy Chat Beta"
-                >
-                  <div className="flex flex-col items-center text-center space-y-6">
-                    <div className="relative">
-                      <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
-                      <div className="relative transform transition-all duration-500 group-hover:scale-110">
-                        <QuestionMarkCircleIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
+                  {/* SCIP Portal Card */}
+                  <a
+                    href="https://apps.powerapps.com/play/e/default-325b4494-1587-40d5-bb31-8b660b7f1038/a/75e3789b-9c1d-4feb-9515-20665ab7d6e8?tenantId=325b4494-1587-40d5-bb31-8b660b7f1038&amp;hint=c63b9850-8dc3-44f2-a186-f215cf7de716&amp;sourcetime=1738854913080"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`group card-hover glass rounded-2xl p-8 transition-all duration-1000 transform w-full md:min-w-[350px] ${
+                      featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
+                    }`}
+                    style={{ transitionDelay: '0.4s' }}
+                    aria-label="Access SCIP Platform"
+                  >
+                    <div className="flex flex-col items-center text-center space-y-6">
+                      <div className="relative">
+                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
+                        <div className="relative transform transition-all duration-500 group-hover:scale-110">
+                          <DocumentTextIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
+                        </div>
+                      </div>
+                      <div className="space-y-4">
+                        <h3 className="text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                          SCIP Portal
+                        </h3>
+                        <p className="text-[var(--text)] opacity-80 leading-relaxed">
+                          Streamlined Claims Interface Platform for efficient digital submission and processing of administrative claims.
+                        </p>
                       </div>
                     </div>
-                    <div className="space-y-4">
-                      <h3 className="text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
-                        Policy Assistant
-                      </h3>
-                      <p className="text-[var(--text)] opacity-80 leading-relaxed">
-                        Interactive AI-powered guide for policy inquiries and administrative procedures.
-                        <span className="text-amber-500 ml-1 font-medium">(Beta)</span>
-                      </p>
-                    </div>
-                  </div>
-                </Link>
-                <a
-                  href="https://apps.powerapps.com/play/e/default-325b4494-1587-40d5-bb31-8b660b7f1038/a/75e3789b-9c1d-4feb-9515-20665ab7d6e8?tenantId=325b4494-1587-40d5-bb31-8b660b7f1038&amp;hint=c63b9850-8dc3-44f2-a186-f215cf7de716&amp;sourcetime=1738854913080"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`group card-hover glass rounded-2xl p-8 transition-all duration-1000 transform ${
-                    featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
-                  }`}
-                  style={{ transitionDelay: '0.4s' }}
-                  aria-label="Access SCIP Platform"
-                >
-                  <div className="flex flex-col items-center text-center space-y-6">
-                    <div className="relative">
-                      <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
-                      <div className="relative transform transition-all duration-500 group-hover:scale-110">
-                        <DocumentTextIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
+                  </a>
+
+                  {/* OPI Contact Card */}
+                  <Link
+                    to="/opi"
+                    className={`group card-hover glass rounded-2xl p-8 transition-all duration-1000 transform w-full md:min-w-[350px] ${
+                      featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
+                    }`}
+                    style={{ transitionDelay: '0.6s' }}
+                    aria-label="Access Contact Information"
+                  >
+                    <div className="flex flex-col items-center text-center space-y-6">
+                      <div className="relative">
+                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
+                        <div className="relative transform transition-all duration-500 group-hover:scale-110">
+                          <UserGroupIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
+                        </div>
+                      </div>
+                      <div className="space-y-4">
+                        <h3 className="text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                          Office of Primary Interest
+                        </h3>
+                        <p className="text-[var(--text)] opacity-80 leading-relaxed">
+                          Find FSC & FMC contact information for your unit's financial services and management.
+                        </p>
                       </div>
                     </div>
-                    <div className="space-y-4">
-                      <h3 className="text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
-                        SCIP Portal
-                      </h3>
-                      <p className="text-[var(--text)] opacity-80 leading-relaxed">
-                        Streamlined Claims Interface Platform for efficient digital submission and processing of administrative claims.
-                      </p>
-                    </div>
-                  </div>
-                </a>
-                <div
-                  onClick={() => setShowModal(true)}
-                  className={`group card-hover glass rounded-2xl p-8 transition-all duration-1000 transform cursor-pointer ${
-                    featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
-                  }`}
-                  style={{ transitionDelay: '0.6s' }}
-                  aria-label="Open Other Tools"
-                >
-                  <div className="flex flex-col items-center text-center space-y-6">
-                    <div className="relative">
-                      <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
-                      <div className="relative transform transition-all duration-500 group-hover:scale-110">
-                        <WindowIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
+                  </Link>
+
+                  {/* Administrative Tools Card */}
+                  <div
+                    onClick={() => setShowModal(true)}
+                    className={`group card-hover glass rounded-2xl p-8 transition-all duration-1000 transform cursor-pointer w-full md:min-w-[350px] ${
+                      featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
+                    }`}
+                    style={{ transitionDelay: '0.8s' }}
+                    aria-label="Access Administrative Tools"
+                  >
+                    <div className="flex flex-col items-center text-center space-y-6">
+                      <div className="relative">
+                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
+                        <div className="relative transform transition-all duration-500 group-hover:scale-110">
+                          <DocumentTextIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
+                        </div>
                       </div>
-                    </div>
-                    <div className="space-y-4">
-                      <h3 className="text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
-                        Administrative Tools
-                      </h3>
-                      <p className="text-[var(--text)] opacity-80 leading-relaxed">
-                        Essential resources including Kiosk Manager, SOPs, and operational guidelines.
-                      </p>
+                      <div className="space-y-4">
+                        <h3 className="text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                          Administrative Tools
+                        </h3>
+                        <p className="text-[var(--text)] opacity-80 leading-relaxed">
+                          Access SOPs, guides, and administrative resources for your unit.
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             </section>
+
+            {/* Footer */}
+            <footer className="mt-auto px-4 sm:px-6 lg:px-8 border-t border-[var(--border)]" role="contentinfo">
+              <div className="max-w-5xl mx-auto py-6">
+                {/* Mobile-optimized footer content */}
+                <div className="md:hidden">
+                  <nav className="flex justify-around my-2" aria-label="Footer Navigation">
+                    <a
+                      href="#"
+                      onClick={handleAboutClick}
+                      className="inline-flex flex-col items-center text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1"
+                    >
+                      <InformationCircleIcon className="w-5 h-5" aria-hidden="true" />
+                      <span className="text-xs mt-1">About</span>
+                    </a>
+                    <a
+                      href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
+                      className="inline-flex flex-col items-center text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1"
+                    >
+                      <EnvelopeIcon className="w-5 h-5" aria-hidden="true" />
+                      <span className="text-xs mt-1">Contact</span>
+                    </a>
+                    <div
+                      onClick={() => setShowPrivacyModal(true)}
+                      className="inline-flex flex-col items-center text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1 cursor-pointer"
+                    >
+                      <ShieldCheckIcon className="w-5 h-5" aria-hidden="true" />
+                      <span className="text-xs mt-1">Privacy</span>
+                    </div>
+                  </nav>
+                  <div className="text-center text-xs text-[var(--text)] opacity-50 mt-1">
+                    <p>&copy; {new Date().getFullYear()} G8 Administration Hub</p>
+                  </div>
+                </div>
+                
+                {/* Desktop footer content */}
+                <div className="hidden md:block">
+                  <nav className="flex flex-wrap justify-center gap-6 sm:gap-8 mb-4" aria-label="Footer Navigation">
+                    <a
+                      href="#"
+                      onClick={handleAboutClick}
+                      className="inline-flex items-center space-x-2 text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1"
+                    >
+                      <InformationCircleIcon className="w-5 h-5" aria-hidden="true" />
+                      <span>About</span>
+                    </a>
+                    <a
+                      href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
+                      className="inline-flex items-center space-x-2 text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1"
+                    >
+                      <EnvelopeIcon className="w-5 h-5" aria-hidden="true" />
+                      <span>Contact</span>
+                    </a>
+                    <div
+                      onClick={() => setShowPrivacyModal(true)}
+                      className="inline-flex items-center space-x-2 text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1 cursor-pointer"
+                    >
+                      <ShieldCheckIcon className="w-5 h-5" aria-hidden="true" />
+                      <span>Privacy Policy</span>
+                    </div>
+                  </nav>
+                  <div className="flex justify-between items-center text-sm text-[var(--text)] opacity-50">
+                    <p>&copy; {new Date().getFullYear()} G8 Administration Hub. All rights reserved. Not affiliated with DND or CAF.</p>
+                    <p>Last updated: March 5, 2025</p>
+                  </div>
+                </div>
+              </div>
+            </footer>
           </div>
         </div>
-        
-        {/* Footer - Now as a standard element at the bottom of the page */}
-        <footer className="mt-auto px-4 sm:px-6 lg:px-8 border-t border-[var(--border)]" role="contentinfo">
-          <div className="max-w-5xl mx-auto py-6">
-            {/* Mobile-optimized footer content */}
-            <div className="md:hidden">
-              <nav className="flex justify-around my-2" aria-label="Footer Navigation">
-                <a
-                  href="#"
-                  onClick={handleAboutClick}
-                  className="inline-flex flex-col items-center text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1"
-                >
-                  <InformationCircleIcon className="w-5 h-5" aria-hidden="true" />
-                  <span className="text-xs mt-1">About</span>
-                </a>
-                <a
-                  href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
-                  className="inline-flex flex-col items-center text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1"
-                >
-                  <EnvelopeIcon className="w-5 h-5" aria-hidden="true" />
-                  <span className="text-xs mt-1">Contact</span>
-                </a>
-                <div
-                  onClick={() => setShowPrivacyModal(true)}
-                  className="inline-flex flex-col items-center text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1 cursor-pointer"
-                >
-                  <ShieldCheckIcon className="w-5 h-5" aria-hidden="true" />
-                  <span className="text-xs mt-1">Privacy</span>
-                </div>
-              </nav>
-              <div className="text-center text-xs text-[var(--text)] opacity-50 mt-1">
-                <p>&copy; {new Date().getFullYear()} G8 Administration Hub</p>
-              </div>
-            </div>
-            
-            {/* Desktop footer content */}
-            <div className="hidden md:block">
-              <nav className="flex flex-wrap justify-center gap-6 sm:gap-8 mb-4" aria-label="Footer Navigation">
-                <a
-                  href="#"
-                  onClick={handleAboutClick}
-                  className="inline-flex items-center space-x-2 text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1"
-                >
-                  <InformationCircleIcon className="w-5 h-5" aria-hidden="true" />
-                  <span>About</span>
-                </a>
-                <a
-                  href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
-                  className="inline-flex items-center space-x-2 text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1"
-                >
-                  <EnvelopeIcon className="w-5 h-5" aria-hidden="true" />
-                  <span>Contact</span>
-                </a>
-                <div
-                  onClick={() => setShowPrivacyModal(true)}
-                  className="inline-flex items-center space-x-2 text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1 cursor-pointer"
-                >
-                  <ShieldCheckIcon className="w-5 h-5" aria-hidden="true" />
-                  <span>Privacy Policy</span>
-                </div>
-              </nav>
-              <div className="flex justify-between items-center text-sm text-[var(--text)] opacity-50">
-                <p>&copy; {new Date().getFullYear()} G8 Administration Hub. All rights reserved. Not affiliated with DND or CAF.</p>
-                <p>Last updated: March 5, 2025</p>
-              </div>
-            </div>
-          </div>
-        </footer>
       </div>
+
+      {/* Modals */}
+      {/* Administrative Tools Modal */}
       {showModal && (
         <>
-          {/* Backdrop overlay */}
-          <div 
-            className="fixed inset-0 bg-black/60 z-40 animate-fade-in"
-            onClick={() => setShowModal(false)}
-          />
-          
-          {/* Modal */}
-          <div 
-            className="fixed z-50 animate-float-up max-w-lg w-[90vw] mx-auto"
-            style={{ 
-              top: '50%', 
-              left: '50%', 
-              transform: 'translate(-50%, -50%)' 
-            }}
-          >
+          <div className="fixed inset-0 bg-black/60 z-40 animate-fade-in" onClick={() => setShowModal(false)} />
+          <div className="fixed z-50 animate-float-up max-w-lg w-[90vw] mx-auto" style={{top: '50%', left: '50%', transform: 'translate(-50%, -50%)'}}>
             <div className="bg-[var(--card)] text-[var(--text)] rounded-xl border border-[var(--border)] shadow-2xl">
               {/* Header */}
               <div className="p-6 border-b border-[var(--border)]">
@@ -444,7 +448,6 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              {/* Content */}
               <div className="p-6">
                 <ul className="divide-y divide-[var(--border)]">
                   <li className="py-3 first:pt-0">
@@ -466,10 +469,17 @@ export default function LandingPage() {
                       </svg>
                     </a>
                   </li>
-                  <li className="py-3 relative group/item">
+
+                  {/* Administrative Tools Button */}
+                  <li className="py-3 last:pb-0 relative group/item">
                     <div
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.nativeEvent.stopImmediatePropagation();
+                        setShowOnboardingSubmodal(false);
+                        setShowSOPSubmodal(true);
+                      }}
                       className="flex items-center p-3 rounded-lg hover:bg-[var(--background-secondary)] transition-all duration-200 group cursor-pointer"
-                      onClick={() => setShowSOPSubmodal(true)}
                       data-sop-trigger="true"
                     >
                       <div className="p-2 rounded-lg bg-[var(--background-secondary)] group-hover:bg-[var(--primary)] transition-colors">
@@ -483,6 +493,7 @@ export default function LandingPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
                     </div>
+                    
                     <div
                       ref={sopSubmodalRef}
                       className={`absolute top-0 md:w-72 w-full bg-[var(--card)] text-[var(--text)] rounded-xl border border-[var(--border)] shadow-2xl transition-all duration-300 ${showSOPSubmodal ? 'visible opacity-100 pointer-events-auto' : 'invisible opacity-0 pointer-events-none'}`}
@@ -536,10 +547,11 @@ export default function LandingPage() {
                       </div>
                     </div>
                   </li>
+
                   <li className="py-3 last:pb-0 relative group/item">
                     <div
                       className="flex items-center p-3 rounded-lg hover:bg-[var(--background-secondary)] transition-all duration-200 group cursor-pointer"
-                      onClick={() => setShowOnboardingSubmodal(true)}
+                      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setShowSOPSubmodal(false); setShowOnboardingSubmodal(true); }}
                       data-onboarding-trigger="true"
                     >
                       <div className="flex items-center">
@@ -634,7 +646,6 @@ export default function LandingPage() {
             className="fixed inset-0 bg-black/60 z-40 animate-fade-in"
             onClick={() => setShowPrivacyModal(false)}
           />
-          
           <div 
             className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 animate-float-up"
           >
@@ -642,7 +653,6 @@ export default function LandingPage() {
               className="w-[min(90vw,_32rem)] bg-[var(--card)] text-[var(--text)] rounded-xl border border-[var(--border)] shadow-2xl overflow-hidden"
             >
               <div className="p-4 border-b border-[var(--border)]">
-                {/* Header content */}
                 <div className="flex justify-between items-center">
                   <h2 className="text-2xl font-semibold">Privacy Policy</h2>
                   <button 
@@ -659,7 +669,6 @@ export default function LandingPage() {
 
               <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 16rem)' }}>
                 <div className="p-4 space-y-4">
-                  {/* Content */}
                   <h3 className="text-lg font-semibold">General Privacy Notice</h3>
                   <p className="text-[var(--text)] leading-relaxed">
                     We prioritize the protection of your personal information and are committed to maintaining your trust.
@@ -691,7 +700,6 @@ export default function LandingPage() {
               </div>
 
               <div className="p-4 border-t border-[var(--border)] bg-[var(--background-secondary)] rounded-b-xl">
-                {/* Footer content */}
                 <button
                   onClick={() => setShowPrivacyModal(false)}
                   className="w-full px-4 py-2 text-center text-[var(--text)] bg-[var(--card)] hover:bg-[var(--primary)] hover:text-white rounded-lg transition-colors duration-200"
@@ -770,6 +778,100 @@ export default function LandingPage() {
           </div>
         </>
       )}
-</div>
+
+      {/* SOP Submodal */}
+      {showSOPSubmodal && (
+        <div ref={sopSubmodalRef} className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 animate-float-up">
+          <div className="bg-[var(--card)] text-[var(--text)] rounded-xl border border-[var(--border)] shadow-2xl overflow-hidden" style={{maxHeight:'85vh'}}>
+            <div className="p-4 border-b border-[var(--border)]">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold">Standard Operating Procedures</h3>
+                <button
+                  className="p-2 hover:bg-[var(--background)] rounded-full transition-colors"
+                  aria-label="Close submenu"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowSOPSubmodal(false);
+                  }}
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="p-4">
+              <ul className="divide-y divide-[var(--border)]">
+                <li className="py-2">
+                  <a href="https://scribehow.com/embed-preview/Boots_Reimbursement_Submission_in_SCIP__oWwTYHb2QUeKqvtYJ3DMkg?as=video" target="_blank" rel="noopener noreferrer" className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2">How to Submit Boot Claims</a>
+                </li>
+                <li className="py-2">
+                  <a href="https://scribehow.com/embed-preview/Initiating_TD_Claim_in_SCIP__GGXSDQBnSNq6H5GX_cZUuQ?as=video" target="_blank" rel="noopener noreferrer" className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2">How to Submit TD Claims</a>
+                </li>
+                <li className="py-2">
+                  <a href="https://scribehow.com/embed-preview/Finalizing_a_TD_Claim_in_SCIP__w_JFn6AuTA--OpCHeFqYxA?as=video" target="_blank" rel="noopener noreferrer" className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2">How to Finalize TD Claims</a>
+                </li>
+              </ul>
+            </div>
+            <div className="p-4 border-t border-[var(--border)]">
+              <button
+                onClick={() => setShowSOPSubmodal(false)}
+                className="w-full px-4 py-2 text-center text-[var(--text)] bg-[var(--card)] hover:bg-[var(--primary)] hover:text-white rounded-lg transition-colors duration-200"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Onboarding Submodal */}
+      {showOnboardingSubmodal && (
+        <div ref={onboardingSubmodalRef} className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 animate-float-up">
+          <div className="bg-[var(--card)] text-[var(--text)] rounded-xl border border-[var(--border)] shadow-2xl overflow-hidden" style={{maxHeight:'85vh'}}>
+            <div className="p-4 border-b border-[var(--border)]">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold">Other Resources</h3>
+                <button
+                  className="p-2 hover:bg-[var(--background)] rounded-full transition-colors cursor-pointer"
+                  aria-label="Close submenu"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowOnboardingSubmodal(false);
+                  }}
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="p-4">
+              <ul className="divide-y divide-[var(--border)]">
+                <li className="py-2">
+                  <a href="https://scribehow.com/embed-preview/SCIP_Mobile_Onboarding__qa62L6ezQi2nTzcp3nqq1Q?as=video" className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2">SCIP Mobile Onboarding Guide</a>
+                 </li>
+                 <li className="py-2">
+                   <a href="/scip-desktop" className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2">SCIP Desktop Onboarding Guide (Coming Soon)</a>
+                 </li>
+               </ul>
+             </div>
+            <div className="p-4 border-t border-[var(--border)]">
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowOnboardingSubmodal(false);
+                }}
+                className="w-full px-4 py-2 text-center text-[var(--text)] bg-[var(--card)] hover:bg-[var(--primary)] hover:text-white rounded-lg transition-colors duration-200"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
