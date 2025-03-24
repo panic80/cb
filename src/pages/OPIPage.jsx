@@ -1,28 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { UserGroupIcon } from '@heroicons/react/24/solid';
+import { useNavigate } from 'react-router-dom';
 
-export default function OPIPage() {
+export default function OPIPage({ theme, onThemeChange }) {
+  const navigate = useNavigate();
   const [contactView, setContactView] = useState('fsc');
   const [selectedUnit, setSelectedUnit] = useState('');
   
-  // Add theme state
-  const [theme, setTheme] = useState(() => {
-    const storedTheme = localStorage.getItem('elite-chat-theme');
-    if (storedTheme) return storedTheme;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
-
-  // Update document and localStorage when theme changes
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('elite-chat-theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light');
-  };
-
   // Data structure mapping units to their FSC and FMC contacts
   const unitContacts = {
     '2 Int': {
@@ -120,10 +104,86 @@ export default function OPIPage() {
   // All available units
   const allUnits = Object.keys(unitContacts).sort();
 
+  // Scroll to top on mount
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
+  useEffect(() => {
+    if (theme) {
+      // Apply theme with transition
+      const root = document.documentElement;
+      root.setAttribute('data-theme', theme);
+      root.classList.toggle('dark', theme === 'dark');
+      root.classList.toggle('light', theme === 'light');
+      
+      // Force a repaint to ensure theme changes are applied immediately
+      root.style.display = 'none';
+      root.offsetHeight; // Trigger reflow
+      root.style.display = '';
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    if (onThemeChange) {
+      onThemeChange(newTheme);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--text)]">
-      <div className="max-w-4xl mx-auto px-4 py-12">
-        {/* Add theme toggle button */}
+    <div className="min-h-screen bg-[var(--background)] text-[var(--text)] transition-colors duration-300">
+      {/* Navigation Bar - Fixed for mobile */}
+      <div className="fixed top-0 left-0 right-0 z-50 bg-[var(--background)] border-b border-[var(--border)] px-4 py-2 flex justify-between items-center sm:hidden">
+        <button
+          onClick={() => navigate('/')}
+          className="flex items-center justify-center p-2 bg-[var(--card)] text-[var(--text)] rounded-full shadow-lg hover:shadow-xl transition-all duration-300 border-2 border-[var(--primary)] hover:bg-[var(--background-secondary)]"
+          aria-label="Go back to home"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M19 12H5M12 19L5 12L12 5" 
+                  stroke="currentColor" 
+                  strokeWidth="2" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"/>
+          </svg>
+        </button>
+        <button
+          onClick={toggleTheme}
+          className="flex items-center justify-center p-2 bg-[var(--card)] text-[var(--text)] rounded-full shadow-lg hover:shadow-xl transition-all duration-300 border-2 border-[var(--primary)] hover:bg-[var(--background-secondary)]"
+          aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+        >
+          {theme === 'light' ? (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M20 14.12A7.78 7.78 0 019.88 4a7.78 7.78 0 002.9 15.1 7.78 7.78 0 007.22-5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
+              <path d="M12 2v2m0 16v2M2 12h2m16 0h2m-3-7l-1.5 1.5M4.93 4.93l1.5 1.5m11.14 11.14l1.5 1.5M4.93 19.07l1.5-1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          )}
+        </button>
+      </div>
+
+      {/* Desktop Navigation Buttons */}
+      <div className="hidden sm:block">
+        <div className="fixed top-4 left-4 z-50">
+          <button
+            onClick={() => navigate('/')}
+            className="flex items-center justify-center p-3 bg-[var(--card)] text-[var(--text)] rounded-full shadow-lg hover:shadow-xl transition-all duration-300 border-2 border-[var(--primary)] hover:bg-[var(--background-secondary)] hover:scale-110"
+            aria-label="Go back to home"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M19 12H5M12 19L5 12L12 5" 
+                    stroke="currentColor" 
+                    strokeWidth="2" 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
+
         <div className="fixed top-4 right-4 z-50">
           <button
             onClick={toggleTheme}
@@ -137,24 +197,26 @@ export default function OPIPage() {
             ) : (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
-                <path d="M12 1V3M12 21V23M4.22 4.22L5.64 5.64M18.36 18.36L19.78 19.78M1 12H3M21 12H23M4.22 19.78L5.64 18.36M18.36 5.64L19.78 4.22" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M12 2v2m0 16v2M2 12h2m16 0h2m-3-7l-1.5 1.5M4.93 4.93l1.5 1.5m11.14 11.14l1.5 1.5M4.93 19.07l1.5-1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
             )}
           </button>
         </div>
+      </div>
 
-        <div className="text-center mb-12">
-          <UserGroupIcon className="w-16 h-16 text-[var(--primary)] mx-auto mb-4" />
-          <h1 className="text-4xl font-bold mb-4">Office of Primary Interest</h1>
-          <p className="text-[var(--text-secondary)]">Find your unit's point of contact for financial services and management</p>
+      <div className="max-w-4xl mx-auto px-4 pt-20 pb-12 sm:pt-12">
+        <div className="text-center mb-8 sm:mb-12 transition-all duration-300">
+          <UserGroupIcon className="w-16 h-16 text-[var(--primary)] mx-auto mb-4 transition-colors duration-300" />
+          <h1 className="text-3xl sm:text-4xl font-bold mb-3 sm:mb-4 text-[var(--text)] transition-colors duration-300">Office of Primary Interest</h1>
+          <p className="text-[var(--text-secondary)] transition-colors duration-300 px-4">Find your unit's point of contact for financial services and management</p>
         </div>
 
-        <div className="bg-[var(--card)] rounded-xl shadow-lg border border-[var(--border)] overflow-hidden">
-          <div className="p-6 border-b border-[var(--border)]">
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+        <div className="bg-[var(--card)] rounded-xl shadow-lg border border-[var(--border)] overflow-hidden transition-all duration-300">
+          <div className="p-4 sm:p-6 border-b border-[var(--border)]">
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 justify-center">
               <button
                 onClick={() => setContactView('fsc')}
-                className={`w-full sm:min-w-[200px] px-6 py-3 text-center rounded-lg transition-colors duration-200 ${
+                className={`w-full sm:min-w-[200px] px-4 sm:px-6 py-2 sm:py-3 text-center rounded-lg transition-colors duration-200 text-sm sm:text-base ${
                   contactView === 'fsc'
                     ? 'bg-[var(--primary)] text-white'
                     : 'bg-[var(--background)] text-[var(--text)] hover:bg-[var(--background-secondary)]'
@@ -164,7 +226,7 @@ export default function OPIPage() {
               </button>
               <button
                 onClick={() => setContactView('fmc')}
-                className={`w-full sm:min-w-[200px] px-6 py-3 text-center rounded-lg transition-colors duration-200 ${
+                className={`w-full sm:min-w-[200px] px-4 sm:px-6 py-2 sm:py-3 text-center rounded-lg transition-colors duration-200 text-sm sm:text-base ${
                   contactView === 'fmc' 
                     ? 'bg-[var(--primary)] text-white'
                     : 'bg-[var(--background)] text-[var(--text)] hover:bg-[var(--background-secondary)]'
@@ -174,7 +236,7 @@ export default function OPIPage() {
               </button>
               <button
                 onClick={() => setContactView('byUnit')}
-                className={`w-full sm:min-w-[200px] px-6 py-3 text-center rounded-lg transition-colors duration-200 ${
+                className={`w-full sm:min-w-[200px] px-4 sm:px-6 py-2 sm:py-3 text-center rounded-lg transition-colors duration-200 text-sm sm:text-base ${
                   contactView === 'byUnit'
                     ? 'bg-[var(--primary)] text-white'
                     : 'bg-[var(--background)] text-[var(--text)] hover:bg-[var(--background-secondary)]'
@@ -185,7 +247,7 @@ export default function OPIPage() {
             </div>
           </div>
 
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             {contactView === 'byUnit' ? (
               <div className="space-y-8">
                 <div className="bg-[var(--background)] p-6 rounded-lg">

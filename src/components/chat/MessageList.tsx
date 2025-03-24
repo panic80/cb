@@ -1,159 +1,135 @@
-import React, { useRef, useEffect, useCallback, useMemo } from 'react';
-import { useChatContext } from '../../context/ChatContext';
-import { Message } from '../../context/ChatTypes';
-import MessageGroup from './MessageGroup';
-import DateSeparator from './DateSeparator';
-import LoadingIndicator from './LoadingIndicator';
-import TypingIndicator from './TypingIndicator';
+import React, { useRef, useEffect } from 'react';
+import { Message } from '../../types/chat';
 
-interface DateGroupedMessages {
-  date: string;
-  messages: Message[][];
+interface MessageListProps {
+  messages: Message[];
+  isLoading: boolean;
 }
 
-const MessageList: React.FC = () => {
-  const {
-    messages,
-    isLoading,
-    isTyping,
-    showAvatars,
-    fontSize,
-  } = useChatContext();
-  
+const MessageList: React.FC<MessageListProps> = ({ messages, isLoading }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [userHasScrolled, setUserHasScrolled] = React.useState(false);
-
-  // Memoized message grouping function
-  const groupMessagesByDate = useCallback((msgs: Message[]): DateGroupedMessages[] => {
-    const groups: DateGroupedMessages[] = [];
-    let currentDate = '';
-    let currentGroup: Message[] = [];
-    let currentGroups: Message[][] = [];
-
-    msgs.forEach((message, index) => {
-      const messageDate = new Date(message.timestamp).toLocaleDateString();
-
-      // Handle date change
-      if (messageDate !== currentDate) {
-        if (currentGroup.length > 0) {
-          currentGroups.push([...currentGroup]);
-          currentGroup = [];
-        }
-        if (currentGroups.length > 0) {
-          groups.push({
-            date: currentDate,
-            messages: currentGroups
-          });
-          currentGroups = [];
-        }
-        currentDate = messageDate;
-      }
-
-      // Handle sender change or time gap (2 minutes)
-      const isNewSender = index === 0 || message.sender !== msgs[index - 1].sender;
-      const isTimeSeparated = index > 0 && 
-        (message.timestamp - msgs[index - 1].timestamp > 2 * 60 * 1000);
-
-      if (isNewSender || isTimeSeparated) {
-        if (currentGroup.length > 0) {
-          currentGroups.push([...currentGroup]);
-          currentGroup = [];
-        }
-      }
-
-      currentGroup.push(message);
-    });
-
-    // Handle remaining messages
-    if (currentGroup.length > 0) {
-      currentGroups.push(currentGroup);
-    }
-    if (currentGroups.length > 0) {
-      groups.push({
-        date: currentDate,
-        messages: currentGroups
-      });
-    }
-
-    return groups;
-  }, []);
-
-  // Memoized scroll handler
-  const handleScroll = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
-    
-    setUserHasScrolled(!isNearBottom);
-  }, []);
 
   // Scroll event listener
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+      setUserHasScrolled(!isNearBottom);
+    };
+
     container.addEventListener('scroll', handleScroll);
     return () => container.removeEventListener('scroll', handleScroll);
-  }, [handleScroll]);
+  }, []);
 
   // Auto-scroll effect
   useEffect(() => {
     if (!userHasScrolled && containerRef.current) {
       const element = containerRef.current;
-      const config: ScrollIntoViewOptions = {
-        behavior: isTyping ? 'smooth' : 'auto',
-        block: 'end'
-      };
-      
       requestAnimationFrame(() => {
         element.scrollTo({
           top: element.scrollHeight,
-          behavior: config.behavior
+          behavior: 'smooth'
         });
       });
     }
-  }, [messages, isTyping, userHasScrolled]);
+  }, [messages, userHasScrolled]);
 
-  // Memoize grouped messages
-  const dateGroups = useMemo(() => 
-    groupMessagesByDate(messages), 
-    [messages, groupMessagesByDate]
-  );
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
 
   return (
     <div 
       ref={containerRef}
-      className="message-list"
-      style={{ fontSize: `${fontSize}px` }}
+      className="modern-message-list"
     >
-      {messages.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-state-content">
-            <h2>Canadian Forces Travel Assistant</h2>
-            <p>Ask me anything about Canadian Forces travel policies and procedures.</p>
+      {messages.map((message) => (
+        <div
+          key={message.id}
+          className={`modern-message ${message.role === 'user' ? 'modern-message-user' : 'modern-message-assistant'} ${
+            message.status === 'sending' ? 'sending' : ''
+          } ${message.status === 'error' ? 'error' : ''}`}
+        >
+          <div className="modern-message-avatar">
+            {message.role === 'user' ? (
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
+          </div>
+          <div className="modern-message-content">
+            <div className={`modern-message-bubble glass ${message.status === 'error' ? 'error-message' : ''}`}>
+              <p>{message.content}</p>
+              {message.status === 'error' && (
+                <div className="error-indicator">
+                  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" 
+                      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span>Error sending message</span>
+                </div>
+              )}
+            </div>
+            <div className="modern-message-meta">
+              <time>{new Date(message.timestamp).toLocaleTimeString()}</time>
+              {message.status === 'sending' && <span>Sending...</span>}
+            </div>
           </div>
         </div>
-      ) : (
-        dateGroups.map((dateGroup, dateIndex) => (
-          <div key={`date-${dateIndex}`} className="date-group">
-            <DateSeparator date={dateGroup.date} />
-            {dateGroup.messages.map((group, groupIndex) => (
-              <MessageGroup
-                key={`group-${dateIndex}-${groupIndex}`}
-                messages={group}
-                showAvatars={showAvatars}
+      ))}
+      
+      {isLoading && (
+        <div className="modern-message modern-message-assistant">
+          <div className="modern-message-avatar">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               />
-            ))}
+            </svg>
           </div>
-        ))
+          <div className="modern-message-content">
+            <div className="modern-message-bubble glass">
+              <div className="typing-indicator">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
-
-      {isLoading && <LoadingIndicator showAvatar={showAvatars} />}
-      {isTyping && !isLoading && <TypingIndicator showAvatar={showAvatars} />}
+      
+      <div ref={messagesEndRef} />
     </div>
   );
 };
 
-export default MessageList;
+export default MessageList; 

@@ -1,17 +1,18 @@
 import React, { useState, useEffect, lazy, Suspense, startTransition } from 'react';
-import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { sendToGemini } from './api/gemini.jsx';
 import { fetchTravelInstructions } from './api/travelInstructions';
 import { addQuestion } from './api/questionAnalysis';
 import './index.css';
+import EliteChatAdapter from './new-chat-interface/EliteChatAdapter.tsx';
+import LandingPage from './pages/LandingPage.jsx';
 
 // Lazy load components
 const Hero = lazy(() => import('./components/Hero'));
 const ThemeToggle = lazy(() => import('./components/ThemeToggle'));
-const MobileNavBar = lazy(() => import('./components/MobileNavBar'));
-const FAQPage = lazy(() => import('./pages/FAQPage'));
-const LandingPage = lazy(() => import('./pages/LandingPage.jsx'));
-const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
+const MobileNavBar = lazy(() => import('./components/MobileNavBar.jsx'));
+const FAQPage = lazy(() => import('./pages/FAQPage.jsx'));
+const PrivacyPage = lazy(() => import('./pages/PrivacyPage.jsx'));
 const ModernChatPage = lazy(() => import('./pages/ModernChatPage'));
 const ImprovedChatDemo = lazy(() => import('./pages/ImprovedChatDemo'));
 const ThemeTestPage = lazy(() => import('./pages/ThemeTestPage'));
@@ -26,13 +27,12 @@ const prefetchComponent = (importFn) => {
   return () => clearTimeout(prefetchTimeoutId);
 };
 
-function App() {
-  // State management with batching
+const App = () => {
   const [state, setState] = useState({
     isPreloading: true,
     travelInstructions: null,
     input: '',
-    theme: 'dark',
+    theme: 'light',
     sidebarCollapsed: false,
     isMobile: false,
     isLoading: false,
@@ -110,7 +110,7 @@ function App() {
     const handleResize = () => {
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
-        setState(prev => ({ ...prev, isMobile: window.innerWidth <= 768 }));
+        setState(prev => ({ ...prev, isMobile: window.innerWidth < 768 }));
       }, 150);
     };
 
@@ -209,65 +209,6 @@ function App() {
     <Router>
       <div className="w-screen min-h-screen overflow-x-hidden overflow-y-auto m-0 p-0 max-w-[100vw]">
         <Suspense fallback={<div className="min-h-screen bg-background" />}>
-          <Routes>
-            <Route path="/" element={
-              <Suspense fallback={<div className="min-h-screen bg-background" />}>
-                <LandingPage />
-              </Suspense>
-            } />
-            <Route path="/opi" element={
-              <Suspense fallback={<div className="min-h-screen bg-background" />}>
-                <OPIPage />
-              </Suspense>
-            } />
-            <Route
-              path="/chat"
-              element={
-                state.isPreloading ? (
-                  <div className="min-h-screen bg-background" />
-                ) : (
-                  <Suspense fallback={<div className="min-h-screen bg-background" />}>
-                    <ModernChatPage />
-                  </Suspense>
-                )
-              }
-            />
-            <Route path="/privacy" element={
-                          <Suspense fallback={<div className="min-h-screen bg-background" />}>
-                            <PrivacyPage />
-                          </Suspense>
-                        } />
-            <Route path="/faq" element={
-              <Suspense fallback={<div className="min-h-screen bg-background" />}>
-                <FAQPage />
-              </Suspense>
-            } />
-            <Route path="/coming-soon-1" element={
-              <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Coming Soon</h1>
-              </div>
-            } />
-            <Route path="/coming-soon-2" element={
-              <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Coming Soon</h1>
-              </div>
-            } />
-            <Route path="/improved-chat" element={
-              <Suspense fallback={<div className="min-h-screen bg-background" />}>
-                <ImprovedChatDemo />
-              </Suspense>
-            } />
-            <Route path="/theme-test" element={
-              <Suspense fallback={<div className="min-h-screen bg-background" />}>
-                <ThemeTestPage />
-              </Suspense>
-            } />
-            <Route path="/loading-debug" element={
-              <Suspense fallback={<div className="min-h-screen bg-background" />}>
-                <LoadingDebugPage />
-              </Suspense>
-            } />
-          </Routes>
           {state.isMobile && (
             <MobileNavBar
               theme={state.theme}
@@ -277,10 +218,46 @@ function App() {
               }))}
             />
           )}
+          <Routes>
+            <Route path="/" element={
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
+                <LandingPage 
+                  theme={state.theme}
+                  onThemeChange={(newTheme) => setState(prev => ({ ...prev, theme: newTheme }))}
+                />
+              </Suspense>
+            } />
+            <Route path="/chat" element={
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
+                <EliteChatAdapter 
+                  theme={state.theme} 
+                  onThemeChange={(newTheme) => setState(prev => ({ ...prev, theme: newTheme }))}
+                />
+              </Suspense>
+            } />
+            <Route path="/faq" element={
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
+                <FAQPage />
+              </Suspense>
+            } />
+            <Route path="/privacy" element={
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
+                <PrivacyPage />
+              </Suspense>
+            } />
+            <Route path="/opi" element={
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
+                <OPIPage 
+                  theme={state.theme}
+                  onThemeChange={(newTheme) => setState(prev => ({ ...prev, theme: newTheme }))}
+                />
+              </Suspense>
+            } />
+          </Routes>
         </Suspense>
       </div>
     </Router>
   );
-}
+};
 
 export default App;

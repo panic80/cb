@@ -40,7 +40,7 @@ const useIntersectionObserver = (options = {}) => {
   return [elementRef, isVisible];
 };
 
-export default function LandingPage() {
+export default function LandingPage({ theme, onThemeChange }) {
   // Force reload on each visit unless it's already a reload
   useEffect(() => {
     if (window.performance && window.performance.navigation.type === window.performance.navigation.TYPE_NAVIGATE) {
@@ -48,22 +48,20 @@ export default function LandingPage() {
     }
   }, []);
 
-  // Initialize theme from localStorage or system preference
-  const [theme, setTheme] = useState(() => {
-    const storedTheme = localStorage.getItem('elite-chat-theme');
-    if (storedTheme) return storedTheme;
-    
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
+  useEffect(() => {
+    if (theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      document.documentElement.classList.toggle('light', theme === 'light');
+    }
+  }, [theme]);
 
-  // Toggle between light and dark with smooth transition
-  const toggleTheme = useCallback(() => {
-    setTheme(prev => {
-      const newTheme = prev === 'light' ? 'dark' : 'light';
-      localStorage.setItem('elite-chat-theme', newTheme);
-      return newTheme;
-    });
-  }, []);
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    if (onThemeChange) {
+      onThemeChange(newTheme);
+    }
+  };
 
   // Intersection observers for animations
   const [heroRef, heroVisible] = useIntersectionObserver();
@@ -195,8 +193,10 @@ export default function LandingPage() {
                 <div
                   className="mb-10 flex justify-center transform transition-all duration-500 hover:scale-110"
                 >
-                  <BuildingLibraryIcon
-                    className="w-24 h-24 text-[var(--primary)] animate-scale"
+                  <img
+                    src="https://www.canada.ca/content/dam/army-armee/migration/assets/army_internet/images/badges/badge-32-canadian-brigade-group.jpg"
+                    alt="32 Canadian Brigade Group Badge"
+                    className="w-32 h-32 object-contain animate-scale"
                     style={{
                       filter: 'drop-shadow(0 0 15px rgba(var(--primary-rgb), 0.3))',
                     }}

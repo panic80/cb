@@ -3,6 +3,10 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { LoadingProvider, useLoading } from './context/LoadingContext';
 import LoadingExample from './example/LoadingExample';
 import './App.css';
+import UnifiedChat from './components/chat/UnifiedChat';
+import { ChatProvider } from './context/ChatContext';
+import './components/chat/variables.css';
+import ModernizedChat from './components/modernized/ModernizedChat';
 
 // Import components
 import Chat from './components/Chat';
@@ -26,7 +30,19 @@ const AppContent: React.FC = () => {
         />
         <Route 
           path="/chat" 
-          element={<Chat />} 
+          element={
+            <ChatProvider>
+              <UnifiedChat />
+            </ChatProvider>
+          } 
+        />
+        <Route 
+          path="/chat/modern" 
+          element={
+            <ChatProvider>
+              <ModernizedChat />
+            </ChatProvider>
+          } 
         />
         <Route 
           path="/loading-demo" 

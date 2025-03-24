@@ -27,7 +27,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     });
   };
 
-  const messageClass = `chat-message ${message.sender === 'user' ? 'user' : 'assistant'} ${
+  const messageClass = `chat-message ${message.sender === 'user' ? 'user-message' : 'assistant-message'} ${
     isConsecutive ? 'consecutive' : ''
   } ${message.status === 'error' ? 'error' : ''} ${className}`;
 
@@ -38,9 +38,29 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
       data-sender={message.sender}
     >
       <div className="message-content">
+        {message.sender === 'assistant' && showAvatar && !isConsecutive && (
+          <div className="avatar assistant-avatar">AI</div>
+        )}
+        
         <div className="message-bubble">
           {message.content}
+          
+          <div className="message-meta">
+            {message.timestamp && (
+              <span className="message-time">{formatTime(message.timestamp)}</span>
+            )}
+            {message.status === 'sending' && (
+              <span className="message-status">Sending...</span>
+            )}
+            {message.status === 'error' && (
+              <span className="message-status error">Failed to send</span>
+            )}
+          </div>
         </div>
+        
+        {message.sender === 'user' && showAvatar && !isConsecutive && (
+          <div className="avatar user-avatar">You</div>
+        )}
       </div>
     </div>
   );

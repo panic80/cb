@@ -1,251 +1,142 @@
 import React, { useState, useEffect } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import { useNavigate } from 'react-router-dom';
-import { sendToGemini } from '../api/gemini';
-import { fetchTravelInstructions } from '../api/travelInstructions';
-import { Message as EliteMessage } from './types';
-import Chat from './Chat';
-import { useTheme, ThemeProvider } from './ThemeContext';
-import './styles/EliteChatAdapter.css';
+import { Message } from '../types/chat';
+import Chat from '../components/chat/Chat';
+import './styles/ModernChat.css';
+import './styles/variables.css';
 
-/**
- * Adapter component that connects the Elite Chat interface
- * with the existing Gemini API integration
- */
-// Internal component with theme access
-const EliteChatAdapterContent: React.FC = () => {
+interface EliteChatAdapterProps {
+  theme?: 'light' | 'dark';
+  onThemeChange?: (theme: 'light' | 'dark') => void;
+}
+
+const EliteChatAdapter: React.FC<EliteChatAdapterProps> = ({ theme: parentTheme, onThemeChange }) => {
   const navigate = useNavigate();
-  const { theme, toggleTheme } = useTheme();
-  
-  // State management
-  const [messages, setMessages] = useState<EliteMessage[]>([]);
-  const [fontSize, setFontSize] = useState<number>(16);
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: uuidv4(),
+      content: 'Hello! I am your Canadian Forces Travel Assistant. How can I help you today?',
+      role: 'assistant',
+      timestamp: Date.now(),
+      status: 'sent',
+    },
+  ]);
   const [isLoading, setIsLoading] = useState(false);
-  const [travelInstructions, setTravelInstructions] = useState<string | null>(null);
   const [networkError, setNetworkError] = useState<string | null>(null);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
-  const [isSimplifyMode, setIsSimplifyMode] = useState(false);
-  const WELCOME_MESSAGE = `👋 Welcome to the Canadian Forces Travel Assistant!
+  const [theme, setTheme] = useState<'light' | 'dark'>(parentTheme || 'light');
 
-I'm here to help you understand CF Temporary Duty Travel Instructions, using official documentation to provide accurate policy information.
-
-✨ Key Features:
-• Ask about travel policies and get detailed answers
-• Use 'Simplified' mode for clearer responses
-• See source references for transparency
-• Switch between dark/light themes
-
-⚠️ Important: AI may give out wrong answers. Always check with an FSA for complete and accurate policy information.
-
-❗ Note: This service is in beta and continuously improving.
-Last updated: March 5, 2025
-
-How may I assist you with your travel-related questions today?`;
-
-  // Initialize messages with welcome message and set initial font size
   useEffect(() => {
-    setMessages([{
-      id: generateMessageId(),
-      content: WELCOME_MESSAGE,
-      sender: 'assistant',
-      timestamp: Date.now(),
-      status: 'delivered'
-    }]);
-    // Initialize font size CSS variable
-    document.documentElement.style.setProperty('--chat-font-size', `${fontSize}px`);
-  }, []);
+    if (parentTheme) {
+      setTheme(parentTheme);
+    }
+  }, [parentTheme]);
 
-  // Load travel instructions on component mount
   useEffect(() => {
-    const loadInstructions = async () => {
-      try {
-        const instructions = await fetchTravelInstructions();
-        setTravelInstructions(instructions);
-      } catch (error) {
-        console.error('Failed to load travel instructions:', error);
-        setNetworkError('Failed to load travel instructions. Please try again later.');
-      }
-    };
-    
-    loadInstructions();
-  }, []);
+    if (!parentTheme) {
+      // Only use system preference if no parent theme is provided
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      setTheme(prefersDark ? 'dark' : 'light');
 
-  // Generate a unique message ID
-  const generateMessageId = (): string => {
-    return `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-  };
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleChange = (e: MediaQueryListEvent) => {
+        setTheme(e.matches ? 'dark' : 'light');
+      };
 
-  // Handle sending a message
-  const handleSendMessage = async (messageOrContent: EliteMessage | string) => {
-    // Extract content from message object or use directly if it's a string
-    const content = typeof messageOrContent === 'string'
-      ? messageOrContent
-      : messageOrContent.content;
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    }
+  }, [parentTheme]);
 
-    if (!content.trim()) return;
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
 
-    // Create user message
-    const userMessage: EliteMessage = {
-      id: generateMessageId(),
-      content: content.trim(),
-      sender: 'user',
+  const handleSendMessage = async (messageOrContent: string | Message) => {
+    const content = typeof messageOrContent === 'string' ? messageOrContent : messageOrContent.content;
+    const userMessage: Message = {
+      id: uuidv4(),
+      content,
+      role: 'user',
       timestamp: Date.now(),
       status: 'sending',
     };
 
-    // Add user message to chat
     setMessages((prev) => [...prev, userMessage]);
-
-    // Set status to sent after a brief delay
-    setTimeout(() => {
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === userMessage.id ? { ...msg, status: 'sent' } : msg
-        )
-      );
-    }, 300);
-
     setIsLoading(true);
-    setNetworkError(null);
+    setNetworkError(null); // Clear any previous errors
 
     try {
-      if (travelInstructions) {
-        console.log("Sending message to Gemini...");
-        // Send message to Gemini API
-        const response = await sendToGemini(
-          content,
-          isSimplifyMode,
-          'models/gemini-2.0-flash-001',
-          travelInstructions as any
+      const response = await fetch('/api/gemini/generateContent', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gemini-2.0-flash',
+          prompt: content,
+          generationConfig: {
+            temperature: 0.1,
+            topP: 0.1,
+            topK: 1,
+            maxOutputTokens: 2048
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to send message: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      // Update the user message status to 'sent'
+      setMessages((prev) => {
+        const updatedMessages = prev.map((msg) =>
+          msg.id === userMessage.id ? { ...msg, status: 'sent' as const } : msg
         );
         
-        console.log("Received response from Gemini:", response);
-
-        if (!response || !response.text) {
-          console.error("Invalid response format", response);
-          throw new Error("Invalid response from Gemini API");
-        }
-
-        // Format sources (if any)
-        const attachments = response.sources ?
-          response.sources.map(source => ({
-            id: generateMessageId(),
-            type: 'document' as const,
-            url: source.reference || '#',
-            name: source.reference || 'Source',
-            metadata: { text: source.text }
-          })) :
-          undefined;
-
-        // Create assistant message with response text
-        const assistantMessage: EliteMessage = {
-          id: generateMessageId(),
-          content: response.text || "I couldn't generate a response. Please try again.",
-          sender: 'assistant',
-          timestamp: Date.now(),
-          status: 'delivered',
-          attachments,
-          metadata: {
-            simplified: isSimplifyMode
-          }
-        };
-
-        console.log("Adding assistant message to chat:", assistantMessage);
-        
-        // Update messages state using the functional form to ensure we're working with the latest state
-        setMessages(prevMessages => {
-          // Create a new array from the current state
-          const updatedMessages = [...prevMessages];
-          
-          // Find and update the user message
-          const userMessageIndex = updatedMessages.findIndex(msg => msg.id === userMessage.id);
-          if (userMessageIndex !== -1) {
-            updatedMessages[userMessageIndex] = {
-              ...updatedMessages[userMessageIndex],
-              status: 'delivered'
-            };
-          }
-          
-          // Add the assistant message
-          updatedMessages.push(assistantMessage);
-          
-          // Return the updated array
-          return updatedMessages;
-        });
-      } else {
-        throw new Error("No travel instructions available");
-      }
+        // Add the assistant's response
+        return [
+          ...updatedMessages,
+          {
+            id: uuidv4(),
+            content: data.response || "I'm sorry, I couldn't generate a response. Please try again.",
+            role: 'assistant',
+            timestamp: Date.now(),
+            status: 'sent' as const,
+          } as Message,
+        ];
+      });
     } catch (error) {
-      console.error('Error sending message to Gemini:', error);
+      console.error('Error sending message:', error);
       
-      // Update network error state
-      setNetworkError(
-        error instanceof Error && error.message === "No travel instructions available"
-          ? "I couldn't access the travel instructions. Please try again."
-          : "Network error. Please check your connection and try again."
-      );
+      // Show a user-friendly error message
+      const errorMessage = error instanceof Error ? error.message : 'Failed to send message. Please try again.';
+      setNetworkError(errorMessage);
+      setShowToast(true);
       
-      // Update user message status to error
+      // Update the message status to error
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === userMessage.id ? { ...msg, status: 'error' } : msg
         )
       );
-      
-      // Add error message
-      const errorMessage: EliteMessage = {
-        id: generateMessageId(),
-        content: "I'm sorry, I encountered an error processing your request. Please try again.",
-        sender: 'assistant',
-        timestamp: Date.now(),
-        status: 'error',
-      };
-      
-      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Handle copying message content
-  const handleCopyMessage = (content: string) => {
-    navigator.clipboard.writeText(content)
-      .then(() => {
-        setToastMessage("Message copied to clipboard");
-        setShowToast(true);
-      })
-      .catch((err) => {
-        console.error('Failed to copy message:', err);
-        setToastMessage("Failed to copy message");
-        setShowToast(true);
-      });
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    if (onThemeChange) {
+      onThemeChange(newTheme);
+    }
   };
 
-  // Handle message deletion
-  const handleDeleteMessage = (id: string) => {
-    setMessages((prev) => prev.filter((msg) => msg.id !== id));
-    setToastMessage("Message deleted");
-    setShowToast(true);
-  };
-
-  // Font size control handlers
-  const handleIncreaseFontSize = () => {
-    setFontSize(prev => {
-      const newSize = Math.min(prev + 2, 24); // Max size 24px
-      document.documentElement.style.setProperty('--chat-font-size', `${newSize}px`);
-      return newSize;
-    });
-  };
-
-  const handleDecreaseFontSize = () => {
-    setFontSize(prev => {
-      const newSize = Math.max(prev - 2, 12); // Min size 12px
-      document.documentElement.style.setProperty('--chat-font-size', `${newSize}px`);
-      return newSize;
-    });
-  };
-
-  // Hide toast after 3 seconds
   useEffect(() => {
     if (showToast) {
       const timer = setTimeout(() => {
@@ -255,181 +146,128 @@ How may I assist you with your travel-related questions today?`;
     }
   }, [showToast]);
 
-  // Network error banner component
-  const NetworkErrorBanner = () => (
-    networkError ? (
-      <div className="network-error-banner">
-        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
-          <path d="M12 8v4M12 16h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-        <span>{networkError}</span>
-        <button onClick={() => setNetworkError(null)} aria-label="Dismiss">
-          ×
-        </button>
+  return (
+    <div className="modern-chat-container glass animate-fade-up">
+      {/* Decorative Background Elements */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {theme === 'dark' ? (
+          <>
+            <div className="absolute w-[600px] h-[600px] rounded-full blur-3xl opacity-20 floating"
+              style={{
+                background: `radial-gradient(circle at center, var(--primary) 0%, transparent 70%)`,
+                top: '-10%',
+                left: '-10%',
+              }}
+            />
+            <div className="absolute w-[600px] h-[600px] rounded-full blur-3xl opacity-20 floating"
+              style={{
+                background: `radial-gradient(circle at center, var(--primary) 0%, transparent 70%)`,
+                bottom: '-10%',
+                right: '-10%',
+                animationDelay: '-1.5s',
+              }}
+            />
+          </>
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-b from-white to-blue-50 opacity-80" />
+        )}
       </div>
-    ) : null
-  );
 
-  // Custom header with back button, simplify toggle, and theme toggle
-  const CustomHeader = () => (
-    <div className="elite-header">
-      <div className="header-left">
-        <button
-          className="back-button"
-          onClick={() => navigate(-1)}
-          aria-label="Go back"
-        >
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M19 12H5M12 19L5 12L12 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
-        <h1>Canadian Forces Travel Assistant (BETA)</h1>
-      </div>
-      
-      <div className="header-actions">
-        {/* Simplify toggle */}
-        <button
-          onClick={() => setIsSimplifyMode(!isSimplifyMode)}
-          className={`simplify-button ${isSimplifyMode ? 'active' : ''}`}
-          aria-pressed={isSimplifyMode}
-          role="switch"
-          title={isSimplifyMode ? 'Turn off simplified responses' : 'Turn on simplified responses'}
-        >
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            {isSimplifyMode ? (
-              // Simple view icon (3 short lines)
-              <>
-                <path d="M4 6h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M4 12h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M4 18h7" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-              </>
-            ) : (
-              // Detailed view icon (3 full-width lines)
-              <>
-                <path d="M4 6h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M4 12h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M4 18h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-              </>
-            )}
-          </svg>
-          <span className="simplify-label">{isSimplifyMode ? 'Simple' : 'Detailed'}</span>
-        </button>
-        
-        {/* Font size controls */}
-        <div className="font-size-controls">
-          <button
-            onClick={handleDecreaseFontSize}
-            className="action-button"
-            aria-label="Decrease font size"
-            title="Decrease font size"
-            disabled={fontSize <= 12}
+      <header className="modern-chat-header glass">
+        <div className="header-title">
+          <button 
+            onClick={() => navigate('/')}
+            className="back-button icon-button card-hover focus-ring"
+            aria-label="Go back to home"
           >
-            <span className="font-icon small-a">A</span>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M19 12H5M12 19L5 12L12 5" 
+                    stroke="currentColor" 
+                    strokeWidth="2" 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round"/>
+            </svg>
           </button>
-          <button
-            onClick={handleIncreaseFontSize}
-            className="action-button"
-            aria-label="Increase font size"
-            title="Increase font size"
-            disabled={fontSize >= 24}
+          <h1 className="gradient-text text-xl font-semibold">Canadian Forces Travel Assistant</h1>
+        </div>
+        <div className="header-actions">
+          {messages.length > 1 && (
+            <button 
+              onClick={() => setMessages([messages[0]])} 
+              className="icon-button card-hover focus-ring"
+              aria-label="Clear chat"
+              title="Clear chat"
+            >
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M3 6H21M19 6L18.2987 16.5193C18.1935 18.0975 16.9037 19.3 15.321 19.3H8.67901C7.09628 19.3 5.80651 18.0975 5.70132 16.5193L5 6M8 6V4C8 2.89543 8.89543 2 10 2H14C15.1046 2 16 2.89543 16 4V6" 
+                      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          )}
+          <button 
+            onClick={toggleTheme}
+            className="icon-button card-hover focus-ring"
+            aria-label="Toggle theme"
+            title="Toggle theme"
           >
-            <span className="font-icon large-a">A</span>
+            {theme === 'dark' ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
+                <path d="M12 2v2m0 16v2M2 12h2m16 0h2m-3-7l-1.5 1.5M4.93 4.93l1.5 1.5m11.14 11.14l1.5 1.5M4.93 19.07l1.5-1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
           </button>
         </div>
+      </header>
 
-        {/* Theme toggle */}
-        <button
-          className="action-button theme-button"
-          onClick={toggleTheme}
-          aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-          title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-        >
-          {theme === 'light' ? (
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path
-                d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle
-                cx="12"
-                cy="12"
-                r="5"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M12 1V3M12 21V23M4.22 4.22L5.64 5.64M18.36 18.36L19.78 19.78M1 12H3M21 12H23M4.22 19.78L5.64 18.36M18.36 5.64L19.78 4.22"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          )}
-        </button>
-      </div>
-    </div>
-  );
+      <main className="modern-chat-main hero-gradient">
+        <Chat
+          initialMessages={messages}
+          onMessageSent={handleSendMessage}
+          isLoading={isLoading}
+          onError={(error) => {
+            setNetworkError(error.message);
+            setShowToast(true);
+          }}
+          className="flex-1"
+        />
+      </main>
 
-  // Update header background color based on theme
-  useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'light') {
-      root.style.setProperty('--header-bg', '#f5f5f5');
-    } else {
-      root.style.setProperty('--header-bg', '#2a2a2a');
-    }
-  }, [theme]);
-
-  return (
-    <div className="elite-chat-adapter">
-      {networkError && <NetworkErrorBanner />}
-      
-      <CustomHeader />
-      
-      <Chat
-        initialMessages={messages}
-        onMessageSent={handleSendMessage}
-        isLoading={isLoading}
-        className="elite-chat-container"
-      />
-      
-      {/* Toast notification */}
-      {showToast && (
-        <div className="toast-notification" role="alert">
-          <div className="toast-content">
+      {networkError && (
+        <div className="network-error-banner glass">
+          <div className="error-icon">
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path
-                d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
+              <path d="M12 8v4M12 16h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <span>{toastMessage}</span>
           </div>
+          <div className="error-content">
+            <h3>Error</h3>
+            <p>{networkError}</p>
+          </div>
+          <button onClick={() => setNetworkError(null)} className="close-button" aria-label="Dismiss error">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {showToast && (
+        <div className="toast-message glass animate-fade-up">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M12 8V12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M12 16H12.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <p>{networkError || toastMessage}</p>
         </div>
       )}
     </div>
-  );
-};
-
-// Main adapter component wrapped with ThemeProvider
-const EliteChatAdapter: React.FC = () => {
-  return (
-    <ThemeProvider>
-      <EliteChatAdapterContent />
-    </ThemeProvider>
   );
 };
 
