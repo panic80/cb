@@ -45,20 +45,49 @@
   }
 }
 
+/* Viewport adjustments */
+html, body {
+  height: 100%;
+  min-height: 100vh;
+  min-height: -webkit-fill-available; /* Fallback for Safari */
+  margin: 0;
+  padding: 0;
+  overflow-y: auto !important;
+}
+
+.root-container {
+  min-height: 100vh; /* Use viewport height for minimum height */
+  min-height: 100dvh; /* Use dynamic viewport height for better mobile experience */
+  min-height: calc(var(--vh, 1vh) * 100); /* Fallback for browsers that don't support dvh */
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
 /* Elegant gradients */
 .hero-gradient {
   background: radial-gradient(circle at 50% 50%, var(--background) 0%, rgba(30, 41, 59, 0.8) 100%);
+  flex: 1; /* Allow the gradient to expand and fill available space */
 }
 
 .card-hover {
   transition: all 0.3s ease-in-out;
   background: linear-gradient(135deg, var(--card) 0%, var(--background-secondary) 100%);
+  height: 100%; /* Make sure cards fill their container height */
+  display: flex;
+  flex-direction: column;
 }
 
 .card-hover:hover {
   transform: translateY(-5px);
   box-shadow: 0 20px 40px -15px rgba(var(--primary-rgb), 0.2);
   background: linear-gradient(135deg, var(--background-secondary) 0%, var(--card) 100%);
+}
+
+/* Grid cell equal height */
+.grid {
+  display: grid;
+  grid-auto-rows: 1fr; /* Set all rows in the grid to have equal height */
 }
 
 /* Glassmorphism effect */
@@ -72,6 +101,12 @@
 /* Smooth scrolling */
 html {
   scroll-behavior: smooth;
+  height: -webkit-fill-available; /* Fallback for Safari */
+}
+
+body {
+  min-height: 100vh;
+  min-height: -webkit-fill-available; /* Fallback for Safari */
 }
 
 /* Custom scroll indicator */

@@ -7,6 +7,7 @@
 - `npm run test:watch` - Run tests in watch mode
 - `npx vitest path/to/test.js` - Run single test file
 - `npx vitest -t "test name pattern"` - Run tests matching pattern
+- `npm run test:coverage` - Run tests with coverage
 
 ## Code Style
 - **Imports**: React first, third-party libs, then local modules
@@ -22,3 +23,5 @@
 - API communication in src/api
 - New chat interface in src/new-chat-interface
 - Component organization by feature/use case
+- Context API for state management
+- Custom error handling via ChatError class

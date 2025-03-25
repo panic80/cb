@@ -48,6 +48,23 @@ export default function LandingPage({ theme, onThemeChange }) {
     }
   }, []);
 
+  // Set viewport height correctly for mobile browsers
+  useEffect(() => {
+    // First, get the viewport height
+    const vh = window.innerHeight * 0.01;
+    // Then set the value in the --vh custom property to the root of the document
+    document.documentElement.style.setProperty('--vh', `${vh}px`);
+
+    // Update the height on window resize
+    const handleResize = () => {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   useEffect(() => {
     if (theme) {
       document.documentElement.setAttribute('data-theme', theme);
@@ -55,6 +72,32 @@ export default function LandingPage({ theme, onThemeChange }) {
       document.documentElement.classList.toggle('light', theme === 'light');
     }
   }, [theme]);
+
+  // Add a style tag to the head to force scrolling to work
+  useEffect(() => {
+    const styleEl = document.createElement('style');
+    styleEl.textContent = `
+      html, body, #root, .root-container {
+        height: auto !important;
+        min-height: 100%;
+        min-height: 100vh;
+        min-height: calc(var(--vh, 1vh) * 100);
+        overflow-y: auto !important;
+      }
+      @media (max-width: 768px) {
+        .mobile-layout {
+          min-height: calc(var(--vh, 1vh) * 100);
+          overflow-y: auto;
+        }
+      }
+    `;
+    document.head.appendChild(styleEl);
+    return () => {
+      if (document.head.contains(styleEl)) {
+        document.head.removeChild(styleEl);
+      }
+    };
+  }, []);
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
@@ -87,12 +130,6 @@ export default function LandingPage({ theme, onThemeChange }) {
   const [showModal, setShowModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
-  console.log('LandingPage rendered', { theme, showModal, showPrivacyModal, showAboutModal });
-  useEffect(() => {
-    const computedFont = window.getComputedStyle(document.body).getPropertyValue('font-family');
-    console.log('Computed font-family on landing page:', computedFont);
-  }, []);
-
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [showSOPSubmodal, setShowSOPSubmodal] = useState(false);
   const [showOnboardingSubmodal, setShowOnboardingSubmodal] = useState(false);
@@ -100,6 +137,13 @@ export default function LandingPage({ theme, onThemeChange }) {
   // Refs for submodals to detect clicks outside
   const sopSubmodalRef = useRef(null);
   const onboardingSubmodalRef = useRef(null);
+
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Handle clicks outside submodals
   useEffect(() => {
@@ -130,6 +174,7 @@ export default function LandingPage({ theme, onThemeChange }) {
     };
   }, [showSOPSubmodal, showOnboardingSubmodal]);
 
+  // Handle about click
   const handleAboutClick = (e) => {
     e.preventDefault();
     setShowAboutModal(true);
@@ -137,304 +182,381 @@ export default function LandingPage({ theme, onThemeChange }) {
 
   return (
     <div className="root-container">
-      <div className="flex flex-col min-h-screen">
-        <div className="flex-grow">
-          <div className="bg-[var(--background)] text-[var(--text)] pt-12">
-            {/* Theme Toggle */}
-            <div className="fixed top-4 right-4 z-50">
-              <button
-                onClick={toggleTheme}
-                className="flex items-center justify-center p-3 bg-[var(--card)] text-[var(--text)] rounded-full shadow-lg hover:shadow-xl transition-all duration-300 border-2 border-[var(--primary)] hover:bg-[var(--background-secondary)] hover:scale-110"
-                aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-              >
-                {theme === 'light' ? (
-                  // Moon icon for light mode
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M20 14.12A7.78 7.78 0 019.88 4a7.78 7.78 0 002.9 15.1 7.78 7.78 0 007.22-5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                ) : (
-                  // Sun icon for dark mode
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
-                    <path d="M12 2v2m0 16v2M2 12h2m16 0h2m-3-7l-1.5 1.5M4.93 4.93l1.5 1.5m11.14 11.14l1.5 1.5M4.93 19.07l1.5-1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                )}
-              </button>
-            </div>
-            
-            {/* Hero Section */}
-            <main
-              ref={heroRef}
-              className={`relative min-h-[90vh] flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 pb-8 md:pb-12 hero-gradient overflow-hidden transition-opacity duration-1000 ${
-                heroVisible ? 'opacity-100' : 'opacity-0'
-              }`}
-            >
-              {/* Decorative Background Elements */}
-              <div className="absolute inset-0 pointer-events-none">
-                <div className="absolute w-[600px] h-[600px] rounded-full blur-3xl opacity-20 floating"
-                  style={{
-                    background: `radial-gradient(circle at center, var(--primary) 0%, transparent 70%)`,
-                    top: '-10%',
-                    left: '-10%',
-                  }}
-                />
-                <div className="absolute w-[600px] h-[600px] rounded-full blur-3xl opacity-20 floating"
-                  style={{
-                    background: `radial-gradient(circle at center, var(--primary) 0%, transparent 70%)`,
-                    bottom: '-10%',
-                    right: '-10%',
-                    animationDelay: '-1.5s',
-                  }}
-                />
-              </div>
+      {/* Theme Toggle Button */}
+      <div className="fixed top-4 right-4 z-50">
+        <button
+          onClick={toggleTheme}
+          className="flex items-center justify-center p-3 bg-[var(--card)] text-[var(--text)] rounded-full shadow-lg hover:shadow-xl transition-all duration-300 border-2 border-[var(--primary)] hover:bg-[var(--background-secondary)] hover:scale-110"
+          aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+        >
+          {theme === 'light' ? (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M20 14.12A7.78 7.78 0 019.88 4a7.78 7.78 0 002.9 15.1 7.78 7.78 0 007.22-5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
+              <path d="M12 2v2m0 16v2M2 12h2m16 0h2m-3-7l-1.5 1.5M4.93 4.93l1.5 1.5m11.14 11.14l1.5 1.5M4.93 19.07l1.5-1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          )}
+        </button>
+      </div>
 
-              <div className="w-full max-w-4xl mx-auto text-center relative z-10">
-                {/* Animated Icon */}
-                <div
-                  className="mb-10 flex justify-center transform transition-all duration-500 hover:scale-110"
-                >
-                  <img
-                    src="https://www.canada.ca/content/dam/army-armee/migration/assets/army_internet/images/badges/badge-32-canadian-brigade-group.jpg"
-                    alt="32 Canadian Brigade Group Badge"
-                    className="w-32 h-32 object-contain animate-scale"
-                    style={{
-                      filter: 'drop-shadow(0 0 15px rgba(var(--primary-rgb), 0.3))',
-                    }}
-                    aria-hidden="true"
-                  />
-                </div>
+      {/* Desktop Layout - Only visible at MD+ screens */}
+      <div className="hidden md:flex flex-col min-h-screen bg-[var(--background)] text-[var(--text)]" style={{ minHeight: 'calc(var(--vh, 1vh) * 100)' }}>
+        <div className="flex-grow flex items-center justify-center hero-gradient">
+          {/* Decorative Background Elements */}
+          <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute w-[600px] h-[600px] rounded-full blur-3xl opacity-20 floating"
+              style={{
+                background: `radial-gradient(circle at center, var(--primary) 0%, transparent 70%)`,
+                top: '-10%',
+                left: '-10%',
+              }}
+            />
+            <div className="absolute w-[600px] h-[600px] rounded-full blur-3xl opacity-20 floating"
+              style={{
+                background: `radial-gradient(circle at center, var(--primary) 0%, transparent 70%)`,
+                bottom: '-10%',
+                right: '-10%',
+                animationDelay: '-1.5s',
+              }}
+            />
+          </div>
 
-                {/* Title with Enhanced Typography */}
-                <div className="space-y-6">
-                  <h1
-                    className="text-5xl md:text-7xl font-bold mb-4 animate-fade-up gradient-text"
-                    style={{ animationDelay: '0.2s' }}
-                    role="heading"
-                    aria-level="1"
-                  >
-                    32 CBG G8 Administration Hub
-                    <span
-                      className="block text-xl md:text-2xl mt-6 text-[var(--text-secondary)] font-normal animate-fade-up"
-                      style={{ animationDelay: '0.4s' }}
-                    >
-                      Streamlined Military Administration Portal
-                    </span>
+          <div className="container mx-auto px-4 flex items-center h-full">
+            {/* Left Side - Logo and Text */}
+            <div className="w-1/2 flex flex-col items-start justify-center pr-8 animate-fade-up">
+              <div className="flex items-center mb-6">
+                <img
+                  src="https://www.canada.ca/content/dam/army-armee/migration/assets/army_internet/images/badges/badge-32-canadian-brigade-group.jpg"
+                  alt="32 Canadian Brigade Group Badge"
+                  className="w-24 h-24 md:w-32 md:h-32 object-contain animate-scale"
+                  style={{ filter: 'drop-shadow(0 0 15px rgba(var(--primary-rgb), 0.3))' }}
+                />
+                <div className="ml-6">
+                  <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold gradient-text">
+                    32 CBG G8
                   </h1>
-
-                  <p
-                    className="text-xl md:text-2xl text-center max-w-2xl mx-auto text-[var(--text)] opacity-90 leading-relaxed animate-fade-up glass p-6 rounded-2xl"
-                    style={{ animationDelay: '0.6s' }}
-                  >
-                    Your comprehensive digital gateway to administrative resources, claims processing, and policy information. Designed to simplify and expedite your financial administrative tasks.
+                  <p className="text-xl md:text-2xl text-[var(--text-secondary)] mt-2">
+                    Administration Hub
                   </p>
                 </div>
               </div>
+              
+              <p className="text-lg md:text-xl max-w-xl text-[var(--text)] opacity-90 leading-relaxed glass p-5 rounded-xl">
+                Your comprehensive digital gateway to administrative resources, claims processing, and policy information.
+              </p>
+            </div>
 
-              {/* Elegant Scroll Indicator */}
-              <div className="scroll-indicator animate-fade-in" style={{ animationDelay: '1s' }}>
-                <ChevronDownIcon className="w-8 h-8 text-[var(--text-secondary)] animate-bounce" />
-              </div>
-            </main>
+            {/* Center Divider */}
+            <div className="h-3/4 w-px bg-gradient-to-b from-transparent via-[var(--border)] to-transparent mx-4"></div>
 
-            {/* Features Grid Section */}
-            <section
-              ref={featuresRef}
-              className={`relative py-24 px-4 sm:px-6 lg:px-8 bg-[var(--background-secondary)] transition-all duration-1000 transform ${
-                featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
-              }`}
-              aria-label="Features"
-            >
-              <div className="mx-auto">
-                <h2 className="text-3xl md:text-4xl font-bold text-center mb-16 animate-fade-up gradient-text">
-                  Essential Tools & Resources
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 lg:gap-8 max-w-screen-2xl mx-auto">
-                  {/* Policy Assistant Card */}
-                  <Link
-                    to="/chat"
-                    className={`group card-hover glass rounded-2xl p-8 transition-all duration-1000 transform w-full md:min-w-[350px] ${
-                      featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
-                    }`}
-                    style={{ transitionDelay: '0.2s' }}
-                    aria-label="Access Policy Chat Beta"
-                  >
-                    <div className="flex flex-col items-center text-center space-y-6">
-                      <div className="relative">
-                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
-                        <div className="relative transform transition-all duration-500 group-hover:scale-110">
-                          <QuestionMarkCircleIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
-                        </div>
-                      </div>
-                      <div className="space-y-4">
-                        <h3 className="text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
-                          Policy Assistant
-                        </h3>
-                        <p className="text-[var(--text)] opacity-80 leading-relaxed">
-                          Interactive AI-powered guide for policy inquiries and administrative procedures.
-                          <span className="text-amber-500 ml-1 font-medium">(Beta)</span>
-                        </p>
+            {/* Right Side - Navigation Cards */}
+            <div className="w-1/2 flex flex-col justify-center pl-8">
+              <div className="grid grid-cols-2 gap-4 md:gap-6">
+                {/* Policy Assistant Card */}
+                <Link
+                  to="/chat"
+                  className="group card-hover glass rounded-xl p-4 transition-all duration-300 transform hover:scale-105 flex"
+                  aria-label="Access Policy Chat Beta"
+                >
+                  <div className="flex items-center w-full">
+                    <div className="relative flex-shrink-0">
+                      <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-md transform group-hover:scale-150 transition-transform duration-500" />
+                      <div className="relative p-2">
+                        <QuestionMarkCircleIcon className="w-10 h-10 text-[var(--primary)]" aria-hidden="true" />
                       </div>
                     </div>
-                  </Link>
+                    <div className="ml-4">
+                      <h3 className="text-lg font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                        Policy Assistant
+                      </h3>
+                      <p className="text-sm text-[var(--text)] opacity-80">
+                        AI-powered policy guide
+                        <span className="text-amber-500 ml-1 font-medium">(Beta)</span>
+                      </p>
+                    </div>
+                  </div>
+                </Link>
 
-                  {/* SCIP Portal Card */}
-                  <a
-                    href="https://apps.powerapps.com/play/e/default-325b4494-1587-40d5-bb31-8b660b7f1038/a/75e3789b-9c1d-4feb-9515-20665ab7d6e8?tenantId=325b4494-1587-40d5-bb31-8b660b7f1038&amp;hint=c63b9850-8dc3-44f2-a186-f215cf7de716&amp;sourcetime=1738854913080"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`group card-hover glass rounded-2xl p-8 transition-all duration-1000 transform w-full md:min-w-[350px] ${
-                      featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
-                    }`}
-                    style={{ transitionDelay: '0.4s' }}
-                    aria-label="Access SCIP Platform"
-                  >
-                    <div className="flex flex-col items-center text-center space-y-6">
-                      <div className="relative">
-                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
-                        <div className="relative transform transition-all duration-500 group-hover:scale-110">
-                          <DocumentTextIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
-                        </div>
-                      </div>
-                      <div className="space-y-4">
-                        <h3 className="text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
-                          SCIP Portal
-                        </h3>
-                        <p className="text-[var(--text)] opacity-80 leading-relaxed">
-                          Streamlined Claims Interface Platform for efficient digital submission and processing of administrative claims.
-                        </p>
+                {/* SCIP Portal Card */}
+                <a
+                  href="https://apps.powerapps.com/play/e/default-325b4494-1587-40d5-bb31-8b660b7f1038/a/75e3789b-9c1d-4feb-9515-20665ab7d6e8?tenantId=325b4494-1587-40d5-bb31-8b660b7f1038&amp;hint=c63b9850-8dc3-44f2-a186-f215cf7de716&amp;sourcetime=1738854913080"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group card-hover glass rounded-xl p-4 transition-all duration-300 transform hover:scale-105 flex"
+                  aria-label="Access SCIP Platform"
+                >
+                  <div className="flex items-center w-full">
+                    <div className="relative flex-shrink-0">
+                      <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-md transform group-hover:scale-150 transition-transform duration-500" />
+                      <div className="relative p-2">
+                        <DocumentTextIcon className="w-10 h-10 text-[var(--primary)]" aria-hidden="true" />
                       </div>
                     </div>
-                  </a>
+                    <div className="ml-4">
+                      <h3 className="text-lg font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                        SCIP Portal
+                      </h3>
+                      <p className="text-sm text-[var(--text)] opacity-80">
+                        Claims submission system
+                      </p>
+                    </div>
+                  </div>
+                </a>
 
-                  {/* OPI Contact Card */}
-                  <Link
-                    to="/opi"
-                    className={`group card-hover glass rounded-2xl p-8 transition-all duration-1000 transform w-full md:min-w-[350px] ${
-                      featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
-                    }`}
-                    style={{ transitionDelay: '0.6s' }}
-                    aria-label="Access Contact Information"
-                  >
-                    <div className="flex flex-col items-center text-center space-y-6">
-                      <div className="relative">
-                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
-                        <div className="relative transform transition-all duration-500 group-hover:scale-110">
-                          <UserGroupIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
-                        </div>
-                      </div>
-                      <div className="space-y-4">
-                        <h3 className="text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
-                          Office of Primary Interest
-                        </h3>
-                        <p className="text-[var(--text)] opacity-80 leading-relaxed">
-                          Find FSC & FMC contact information for your unit's financial services and management.
-                        </p>
+                {/* OPI Contact Card */}
+                <Link
+                  to="/opi"
+                  className="group card-hover glass rounded-xl p-4 transition-all duration-300 transform hover:scale-105 flex"
+                  aria-label="Access Contact Information"
+                >
+                  <div className="flex items-center w-full">
+                    <div className="relative flex-shrink-0">
+                      <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-md transform group-hover:scale-150 transition-transform duration-500" />
+                      <div className="relative p-2">
+                        <UserGroupIcon className="w-10 h-10 text-[var(--primary)]" aria-hidden="true" />
                       </div>
                     </div>
-                  </Link>
+                    <div className="ml-4">
+                      <h3 className="text-lg font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                        OPI Contact
+                      </h3>
+                      <p className="text-sm text-[var(--text)] opacity-80">
+                        FSC & FMC contacts
+                      </p>
+                    </div>
+                  </div>
+                </Link>
 
-                  {/* Administrative Tools Card */}
-                  <div
-                    onClick={() => setShowModal(true)}
-                    className={`group card-hover glass rounded-2xl p-8 transition-all duration-1000 transform cursor-pointer w-full md:min-w-[350px] ${
-                      featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
-                    }`}
-                    style={{ transitionDelay: '0.8s' }}
-                    aria-label="Access Administrative Tools"
-                  >
-                    <div className="flex flex-col items-center text-center space-y-6">
-                      <div className="relative">
-                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
-                        <div className="relative transform transition-all duration-500 group-hover:scale-110">
-                          <WrenchScrewdriverIcon className="w-16 h-16 text-[var(--primary)]" aria-hidden="true" />
-                        </div>
+                {/* Administrative Tools Card */}
+                <div
+                  onClick={() => setShowModal(true)}
+                  className="group card-hover glass rounded-xl p-4 transition-all duration-300 transform hover:scale-105 cursor-pointer flex"
+                  aria-label="Access Administrative Tools"
+                >
+                  <div className="flex items-center w-full">
+                    <div className="relative flex-shrink-0">
+                      <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-md transform group-hover:scale-150 transition-transform duration-500" />
+                      <div className="relative p-2">
+                        <WrenchScrewdriverIcon className="w-10 h-10 text-[var(--primary)]" aria-hidden="true" />
                       </div>
-                      <div className="space-y-4">
-                        <h3 className="text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
-                          Administrative Tools
-                        </h3>
-                        <p className="text-[var(--text)] opacity-80 leading-relaxed">
-                          Access SOPs, guides, and administrative resources for your unit.
-                        </p>
-                      </div>
+                    </div>
+                    <div className="ml-4">
+                      <h3 className="text-lg font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                        Admin Tools
+                      </h3>
+                      <p className="text-sm text-[var(--text)] opacity-80">
+                        SOPs and resources
+                      </p>
                     </div>
                   </div>
                 </div>
               </div>
-            </section>
-
-            {/* Footer */}
-            <footer className="mt-auto px-4 sm:px-6 lg:px-8 border-t border-[var(--border)]" role="contentinfo">
-              <div className="max-w-5xl mx-auto py-6">
-                {/* Mobile-optimized footer content */}
-                <div className="md:hidden">
-                  <nav className="flex justify-around my-2" aria-label="Footer Navigation">
-                    <a
-                      href="#"
-                      onClick={handleAboutClick}
-                      className="inline-flex flex-col items-center text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1"
-                    >
-                      <InformationCircleIcon className="w-5 h-5" aria-hidden="true" />
-                      <span className="text-xs mt-1">About</span>
-                    </a>
-                    <a
-                      href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
-                      className="inline-flex flex-col items-center text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1"
-                    >
-                      <EnvelopeIcon className="w-5 h-5" aria-hidden="true" />
-                      <span className="text-xs mt-1">Contact</span>
-                    </a>
-                    <div
-                      onClick={() => setShowPrivacyModal(true)}
-                      className="inline-flex flex-col items-center text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1 cursor-pointer"
-                    >
-                      <ShieldCheckIcon className="w-5 h-5" aria-hidden="true" />
-                      <span className="text-xs mt-1">Privacy</span>
-                    </div>
-                  </nav>
-                  <div className="text-center text-xs text-[var(--text)] opacity-50 mt-1">
-                    <p>&copy; {new Date().getFullYear()} G8 Administration Hub</p>
-                  </div>
-                </div>
-                
-                {/* Desktop footer content */}
-                <div className="hidden md:block">
-                  <nav className="flex flex-wrap justify-center gap-6 sm:gap-8 mb-4" aria-label="Footer Navigation">
-                    <a
-                      href="#"
-                      onClick={handleAboutClick}
-                      className="inline-flex items-center space-x-2 text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1"
-                    >
-                      <InformationCircleIcon className="w-5 h-5" aria-hidden="true" />
-                      <span>About</span>
-                    </a>
-                    <a
-                      href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
-                      className="inline-flex items-center space-x-2 text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1"
-                    >
-                      <EnvelopeIcon className="w-5 h-5" aria-hidden="true" />
-                      <span>Contact</span>
-                    </a>
-                    <div
-                      onClick={() => setShowPrivacyModal(true)}
-                      className="inline-flex items-center space-x-2 text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1 cursor-pointer"
-                    >
-                      <ShieldCheckIcon className="w-5 h-5" aria-hidden="true" />
-                      <span>Privacy Policy</span>
-                    </div>
-                  </nav>
-                  <div className="flex justify-between items-center text-sm text-[var(--text)] opacity-50">
-                    <p>&copy; {new Date().getFullYear()} G8 Administration Hub. All rights reserved. Not affiliated with DND or CAF.</p>
-                    <p>Last updated: March 14, 2025</p>
-                  </div>
-                </div>
-              </div>
-            </footer>
+            </div>
           </div>
         </div>
+        
+        {/* Desktop Footer */}
+        <footer className="border-t border-[var(--border)] bg-[var(--background)] py-3 px-4" role="contentinfo">
+          <div className="container mx-auto">
+            <div className="flex justify-between items-center">
+              <p className="text-xs text-[var(--text)] opacity-50">&copy; {new Date().getFullYear()} G8 Admin Hub</p>
+              
+              <nav className="flex space-x-4" aria-label="Footer Navigation">
+                <a
+                  href="#"
+                  onClick={handleAboutClick}
+                  className="inline-flex items-center text-xs text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300"
+                >
+                  <InformationCircleIcon className="w-4 h-4 mr-1" aria-hidden="true" />
+                  <span>About</span>
+                </a>
+                <a
+                  href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
+                  className="inline-flex items-center text-xs text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300"
+                >
+                  <EnvelopeIcon className="w-4 h-4 mr-1" aria-hidden="true" />
+                  <span>Contact</span>
+                </a>
+                <div
+                  onClick={() => setShowPrivacyModal(true)}
+                  className="inline-flex items-center text-xs text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 cursor-pointer"
+                >
+                  <ShieldCheckIcon className="w-4 h-4 mr-1" aria-hidden="true" />
+                  <span>Privacy</span>
+                </div>
+              </nav>
+            </div>
+          </div>
+        </footer>
       </div>
 
-      {/* Modals */}
+      {/* Mobile Layout - Only visible below MD screens */}
+      <div className="md:hidden flex flex-col w-full relative pt-20" style={{ minHeight: 'calc(var(--vh, 1vh) * 100)' }}>
+        <div className="flex-grow">
+          {/* Header Section with Logo */}
+          <div className="flex flex-col items-center text-center mb-8 px-4 pt-20">
+            <img
+              src="https://www.canada.ca/content/dam/army-armee/migration/assets/army_internet/images/badges/badge-32-canadian-brigade-group.jpg"
+              alt="32 Canadian Brigade Group Badge"
+              className="w-28 h-28 object-contain animate-scale mb-6"
+              style={{ filter: 'drop-shadow(0 0 15px rgba(var(--primary-rgb), 0.3))' }}
+            />
+            <h1 className="text-4xl font-bold gradient-text mb-2">
+              32 CBG G8 Administration Hub
+            </h1>
+            <p className="text-lg text-[var(--text-secondary)]">
+              Streamlined Military Administration Portal
+            </p>
+          </div>
+          
+          {/* Description */}
+          <div className="mb-10 px-4">
+            <p className="text-center text-[var(--text)] opacity-90 leading-relaxed glass p-5 rounded-xl">
+              Your comprehensive digital gateway to administrative resources, claims processing, and policy information. Designed to simplify and expedite your financial administrative tasks.
+            </p>
+          </div>
+
+          {/* Mobile Navigation Cards */}
+          <div className="grid grid-cols-1 gap-4 mb-10 px-4">
+            {/* Policy Assistant Card */}
+            <Link
+              to="/chat"
+              className="group card-hover glass rounded-xl p-5 transition-all duration-300 flex"
+              aria-label="Access Policy Chat Beta"
+            >
+              <div className="flex items-center w-full">
+                <div className="relative flex-shrink-0">
+                  <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-md transform group-hover:scale-150 transition-transform duration-500" />
+                  <div className="relative p-2">
+                    <QuestionMarkCircleIcon className="w-12 h-12 text-[var(--primary)]" aria-hidden="true" />
+                  </div>
+                </div>
+                <div className="ml-4">
+                  <h3 className="text-xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                    Policy Assistant
+                  </h3>
+                  <p className="text-[var(--text)] opacity-80">
+                    Interactive AI-powered guide for policy inquiries
+                    <span className="text-amber-500 ml-1 font-medium">(Beta)</span>
+                  </p>
+                </div>
+              </div>
+            </Link>
+
+            {/* SCIP Portal Card */}
+            <a
+              href="https://apps.powerapps.com/play/e/default-325b4494-1587-40d5-bb31-8b660b7f1038/a/75e3789b-9c1d-4feb-9515-20665ab7d6e8?tenantId=325b4494-1587-40d5-bb31-8b660b7f1038&amp;hint=c63b9850-8dc3-44f2-a186-f215cf7de716&amp;sourcetime=1738854913080"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group card-hover glass rounded-xl p-5 transition-all duration-300 flex"
+              aria-label="Access SCIP Platform"
+            >
+              <div className="flex items-center w-full">
+                <div className="relative flex-shrink-0">
+                  <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-md transform group-hover:scale-150 transition-transform duration-500" />
+                  <div className="relative p-2">
+                    <DocumentTextIcon className="w-12 h-12 text-[var(--primary)]" aria-hidden="true" />
+                  </div>
+                </div>
+                <div className="ml-4">
+                  <h3 className="text-xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                    SCIP Portal
+                  </h3>
+                  <p className="text-[var(--text)] opacity-80">
+                    Streamlined Claims Interface for digital submission
+                  </p>
+                </div>
+              </div>
+            </a>
+
+            {/* OPI Contact Card */}
+            <Link
+              to="/opi"
+              className="group card-hover glass rounded-xl p-5 transition-all duration-300 flex"
+              aria-label="Access Contact Information"
+            >
+              <div className="flex items-center w-full">
+                <div className="relative flex-shrink-0">
+                  <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-md transform group-hover:scale-150 transition-transform duration-500" />
+                  <div className="relative p-2">
+                    <UserGroupIcon className="w-12 h-12 text-[var(--primary)]" aria-hidden="true" />
+                  </div>
+                </div>
+                <div className="ml-4">
+                  <h3 className="text-xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                    Office of Primary Interest
+                  </h3>
+                  <p className="text-[var(--text)] opacity-80">
+                    Find FSC & FMC contact information
+                  </p>
+                </div>
+              </div>
+            </Link>
+
+            {/* Administrative Tools Card */}
+            <div
+              onClick={() => setShowModal(true)}
+              className="group card-hover glass rounded-xl p-5 transition-all duration-300 cursor-pointer flex"
+              aria-label="Access Administrative Tools"
+            >
+              <div className="flex items-center w-full">
+                <div className="relative flex-shrink-0">
+                  <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-md transform group-hover:scale-150 transition-transform duration-500" />
+                  <div className="relative p-2">
+                    <WrenchScrewdriverIcon className="w-12 h-12 text-[var(--primary)]" aria-hidden="true" />
+                  </div>
+                </div>
+                <div className="ml-4">
+                  <h3 className="text-xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                    Administrative Tools
+                  </h3>
+                  <p className="text-[var(--text)] opacity-80">
+                    Access SOPs, guides, and resources
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Mobile Footer */}
+        <footer className="border-t border-[var(--border)] bg-[var(--background)] py-4 px-4 mt-auto">
+          <div className="container mx-auto">
+            <div className="flex flex-col items-center">
+              <p className="text-xs text-[var(--text)] opacity-50 text-center mb-3">&copy; {new Date().getFullYear()} G8 Admin Hub</p>
+              
+              <nav className="flex space-x-4" aria-label="Footer Navigation">
+                <a
+                  href="#"
+                  onClick={handleAboutClick}
+                  className="inline-flex items-center text-xs text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300"
+                >
+                  <InformationCircleIcon className="w-4 h-4 mr-1" aria-hidden="true" />
+                  <span>About</span>
+                </a>
+                <a
+                  href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
+                  className="inline-flex items-center text-xs text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300"
+                >
+                  <EnvelopeIcon className="w-4 h-4 mr-1" aria-hidden="true" />
+                  <span>Contact</span>
+                </a>
+                <div
+                  onClick={() => setShowPrivacyModal(true)}
+                  className="inline-flex items-center text-xs text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 cursor-pointer"
+                >
+                  <ShieldCheckIcon className="w-4 h-4 mr-1" aria-hidden="true" />
+                  <span>Privacy</span>
+                </div>
+              </nav>
+            </div>
+          </div>
+        </footer>
+      </div>
+
       {/* Administrative Tools Modal */}
       {showModal && (
         <>

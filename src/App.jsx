@@ -14,9 +14,6 @@ const MobileNavBar = lazy(() => import('./components/MobileNavBar.jsx'));
 const FAQPage = lazy(() => import('./pages/FAQPage.jsx'));
 const PrivacyPage = lazy(() => import('./pages/PrivacyPage.jsx'));
 const ModernChatPage = lazy(() => import('./pages/ModernChatPage'));
-const ImprovedChatDemo = lazy(() => import('./pages/ImprovedChatDemo'));
-const ThemeTestPage = lazy(() => import('./pages/ThemeTestPage'));
-const LoadingDebugPage = lazy(() => import('./pages/LoadingDebugPage'));
 const OPIPage = lazy(() => import('./pages/OPIPage'));
 
 // Prefetch components
@@ -120,6 +117,21 @@ const App = () => {
       window.removeEventListener('resize', handleResize);
       clearTimeout(resizeTimeout);
     };
+  }, []);
+
+  // Set custom viewport height property for mobile browsers
+  useEffect(() => {
+    // First set it on load
+    const setVhProperty = () => {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    };
+    
+    setVhProperty();
+    
+    // Then update on resize
+    window.addEventListener('resize', setVhProperty);
+    return () => window.removeEventListener('resize', setVhProperty);
   }, []);
 
   // Message handling with optimized state updates

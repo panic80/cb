@@ -38,19 +38,70 @@ export const parseApiResponse = (text, isSimplified = false) => {
 
   const sections = text.split('\n').filter(line => line.trim());
   
-  const reference = sections.find(line => line.startsWith('Reference:'))?.replace('Reference:', '').trim();
-  const quote = sections.find(line => line.startsWith('Quote:'))?.replace('Quote:', '').trim();
-  const answer = sections.find(line => line.startsWith('Answer:'))?.replace('Answer:', '').trim();
-  const reason = sections.find(line => line.startsWith('Reason:'))?.replace('Reason:', '').trim();
+  // Try to extract sections with more flexible matching
+  let reference = sections.find(line => line.startsWith('Reference:'))?.replace('Reference:', '').trim();
+  let quote = sections.find(line => line.startsWith('Quote:'))?.replace('Quote:', '').trim();
+  let answer = sections.find(line => line.startsWith('Answer:'))?.replace('Answer:', '').trim();
+  let reason = sections.find(line => line.startsWith('Reason:'))?.replace('Reason:', '').trim();
 
-  if (!answer) {
-    throw new Error('Response missing required answer section');
+  // If we can't find the sections with exact matches, try alternative approaches
+  if (!answer || !reference) {
+    // Try to find section markers with more lenient matching
+    for (const line of sections) {
+      if (!reference && (line.includes('Reference:') || line.includes('Section:') || line.includes('Chapter:'))) {
+        reference = line.replace(/Reference:|Section:|Chapter:/i, '').trim();
+      }
+      
+      if (!quote && line.includes('Quote:')) {
+        quote = line.replace(/Quote:/i, '').trim();
+      }
+      
+      if (!answer && line.includes('Answer:')) {
+        answer = line.replace(/Answer:/i, '').trim();
+      }
+      
+      if (!reason && (line.includes('Reason:') || line.includes('Explanation:'))) {
+        reason = line.replace(/Reason:|Explanation:/i, '').trim();
+      }
+    }
   }
 
+  // If we still don't have an answer, use fallback approach - use the text after any markers
+  if (!answer) {
+    // Look for any section-like marker and take everything after it
+    const answerIndex = sections.findIndex(line => 
+      line.match(/Answer:|Response:|Reply:/i));
+    
+    if (answerIndex !== -1 && answerIndex < sections.length - 1) {
+      answer = sections[answerIndex + 1];
+    } else {
+      // Last resort: just use the text as is after filtering out any reference/quote lines
+      const potentialAnswerLines = sections.filter(line => 
+        !line.match(/^(Reference|Quote|Section|Chapter):/i));
+      
+      if (potentialAnswerLines.length > 0) {
+        answer = potentialAnswerLines.join(' ');
+      } else {
+        // If all else fails, just use the raw text
+        answer = text;
+      }
+    }
+  }
+
+  // Ensure we have at least minimal source information
+  if (!reference && text.includes('Chapter')) {
+    const chapterMatch = text.match(/Chapter\s+\d+/i);
+    if (chapterMatch) {
+      reference = chapterMatch[0];
+    }
+  }
+
+  // Format the response text
   const formattedText = isSimplified ? answer : (reason ? `${answer}\n\nReason: ${reason}` : answer);
+  
   return {
     text: formattedText,
-    sources: quote ? [{ text: quote, reference }] : []
+    sources: quote ? [{ text: quote, reference: reference || 'Travel Instructions' }] : []
   };
 };
 

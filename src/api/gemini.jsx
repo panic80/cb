@@ -30,20 +30,27 @@ export const validateApiKey = (apiKey) => {
  * @returns {string} Formatted prompt
  */
 export const createPrompt = (message, isSimplified = false, instructions) => {
-  return `You are a helpful assistant for Canadian Forces Travel Instructions.
+  return `You are a specialized assistant for Canadian Forces Temporary Duty Travel Instructions. Your ONLY purpose is to provide accurate information from the Canadian Forces travel policy documents.
+
 Here is the ONLY source material you can reference:
 ${instructions}
 
-Question: ${message}
+IMPORTANT RULES:
+1. ONLY answer questions related to Canadian Forces travel policies, allowances, and procedures
+2. If the question is about meal allowances, per diems, or dining, look for relevant sections like meal rates, allowances, or per diems
+3. If the user asks when they get lunch or other meal times, interpret this as asking about meal ALLOWANCES during travel, not their personal schedule
+4. NEVER say "I don't know your schedule" - instead, explain the relevant travel meal allowance policy
+5. If you truly cannot find information in the source material, say "I couldn't find specific information about this in the Canadian Forces Travel Instructions. Please try rephrasing your question or ask about travel allowances, accommodations, or transportation."
 
+Question: ${message}
 
 Please provide a response in this EXACT format:
 
 Reference: <provide the section or chapter reference from the source>
 Quote: <provide the exact quote that contains the answer>
 ${isSimplified ?
-  'Answer: <provide a concise answer in no more than two sentences>' :
-  'Answer: <provide a succinct one-sentence reply>\nReason: <provide a comprehensive explanation and justification drawing upon the source material>'}`;
+  'Answer: <provide a concise answer focused on Canadian Forces travel policies in no more than two sentences>' :
+  'Answer: <provide a succinct one-sentence reply focused on travel policy>\nReason: <provide a comprehensive explanation about the travel policy drawing upon the source material>'}`;
 };
 
 /**
@@ -140,7 +147,31 @@ export const callGeminiViaProxy = async (
   }
   console.log('[DEBUG] API key validation passed');
   
+  // Check if instructions are sufficient
+  if (!instructions || instructions.length < 100) {
+    console.error('[DEBUG] Insufficient instructions length:', instructions?.length || 0);
+    throw new Error('Travel instructions content is too short or missing');
+  }
+  
+  // Check if instructions contain any information about meals
+  const hasMealInfo = instructions.toLowerCase().includes('meal') || 
+                     instructions.toLowerCase().includes('lunch') ||
+                     instructions.toLowerCase().includes('dinner') ||
+                     instructions.toLowerCase().includes('breakfast') ||
+                     instructions.toLowerCase().includes('per diem');
+                     
+  console.log('[DEBUG] Instructions check:', {
+    length: instructions.length,
+    hasMealInfo,
+    previewStart: instructions.substring(0, 100) + '...'
+  });
+  
   const promptText = createPrompt(message, isSimplified, instructions);
+  console.log('[DEBUG] Prompt created:', {
+    promptLength: promptText.length,
+    promptPreview: promptText.substring(0, 200) + '...' + promptText.substring(promptText.length - 100)
+  });
+  
   const modelName = "gemini-2.0-flash";
   const requestBody = {
     model: modelName,
@@ -218,7 +249,40 @@ export const callGeminiViaProxy = async (
 
         const text = data.candidates[0].content.parts[0].text;
         console.log('[DEBUG] Successfully parsed response text:', text.substring(0, 50) + '...');
-        return parseApiResponse(text, isSimplified);
+        
+        try {
+          return parseApiResponse(text, isSimplified);
+        } catch (formatError) {
+          // Log the parsing error, but still try to return something meaningful
+          console.error('[DEBUG] Error parsing response format:', formatError.message);
+          console.error('[DEBUG] Raw response text:', text);
+          
+          // Log this error
+          const errorData = {
+            timestamp: new Date().toISOString(),
+            endpoint: '/api/gemini/generateContent',
+            errorType: 'RESPONSE_FORMAT',
+            message: 'Failed to parse AI response format',
+            userMessage: req?.body?.prompt?.substring(0, 200) || '(unknown)',
+            details: { 
+              error: formatError.message,
+              responsePreview: text.substring(0, 500)
+            }
+          };
+          
+          try {
+            chatLogger.logError(errorData);
+          } catch (logError) {
+            console.error('Failed to log error:', logError);
+          }
+          
+          // Return a simplified response as fallback
+          return {
+            text: "I understand your question about Canadian Forces travel policies, but I'm having trouble formatting my response. Please try asking your question again, focusing specifically on travel allowances, accommodations, or transportation.",
+            sources: [],
+            fallback: true
+          };
+        }
       } catch (parseError) {
         if (parseError instanceof SyntaxError) {
           throw new Error('Invalid JSON response from Gemini API');
