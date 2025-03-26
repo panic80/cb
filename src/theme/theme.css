@@ -44,6 +44,8 @@
   --hover-bg: rgba(0, 0, 0, 0.05);
   --card-bg: #ffffff;
   --shadow-color: rgba(0, 0, 0, 0.1);
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(221, 221, 221, 0.2);
 }
 
 /* Dark Theme */
@@ -59,6 +61,8 @@
   --hover-bg: rgba(255, 255, 255, 0.05);
   --card-bg: #272930;
   --shadow-color: rgba(0, 0, 0, 0.3);
+  --glass-bg: rgba(39, 41, 48, 0.7); /* From --card-bg: #272930 */
+  --glass-border: rgba(58, 61, 71, 0.2); /* From --border-color: #3a3d47 */
 }
 
 /* Global styles */

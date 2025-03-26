@@ -10,8 +10,9 @@ import {
   ShieldCheckIcon,
   ChevronDownIcon,
   UserGroupIcon,
-  CogIcon,
-  WrenchScrewdriverIcon
+  CogIcon, // Keep existing icons
+  WrenchScrewdriverIcon,
+  MoonIcon, SunIcon // Add icons for theme toggle
 } from '@heroicons/react/24/solid';
 import '../styles/sticky-footer.css';
 import '../styles/landing.css';
@@ -41,12 +42,7 @@ const useIntersectionObserver = (options = {}) => {
 };
 
 export default function LandingPage({ theme, onThemeChange }) {
-  // Force reload on each visit unless it's already a reload
-  useEffect(() => {
-    if (window.performance && window.performance.navigation.type === window.performance.navigation.TYPE_NAVIGATE) {
-      window.location.reload();
-    }
-  }, []);
+  // Removed useEffect that forced page reload on navigation
 
   // Set viewport height correctly for mobile browsers
   useEffect(() => {
@@ -65,13 +61,7 @@ export default function LandingPage({ theme, onThemeChange }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  useEffect(() => {
-    if (theme) {
-      document.documentElement.setAttribute('data-theme', theme);
-      document.documentElement.classList.toggle('dark', theme === 'dark');
-      document.documentElement.classList.toggle('light', theme === 'light');
-    }
-  }, [theme]);
+  // This theme application logic is duplicated below (lines 114-117), removing this instance.
 
   // Add a style tag to the head to force scrolling to work
   useEffect(() => {
@@ -186,18 +176,15 @@ export default function LandingPage({ theme, onThemeChange }) {
       <div className="fixed top-4 right-4 z-50">
         <button
           onClick={toggleTheme}
-          className="flex items-center justify-center p-3 bg-[var(--card)] text-[var(--text)] rounded-full shadow-lg hover:shadow-xl transition-all duration-300 border-2 border-[var(--primary)] hover:bg-[var(--background-secondary)] hover:scale-110"
+          // Apply styles consistent with PageLayout
+          className="flex items-center justify-center p-2 sm:p-3 bg-[var(--card)] text-[var(--text)] rounded-full shadow-md hover:shadow-lg transition-all duration-200 border border-[var(--border)] hover:border-[var(--primary)] hover:bg-[var(--background-secondary)]"
           aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
         >
+          {/* Use Heroicons consistent with PageLayout */}
           {theme === 'light' ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M20 14.12A7.78 7.78 0 019.88 4a7.78 7.78 0 002.9 15.1 7.78 7.78 0 007.22-5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <MoonIcon className="w-5 h-5 sm:w-6 sm:h-6" />
           ) : (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
-              <path d="M12 2v2m0 16v2M2 12h2m16 0h2m-3-7l-1.5 1.5M4.93 4.93l1.5 1.5m11.14 11.14l1.5 1.5M4.93 19.07l1.5-1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
+            <SunIcon className="w-5 h-5 sm:w-6 sm:h-6" />
           )}
         </button>
       </div>
@@ -368,21 +355,21 @@ export default function LandingPage({ theme, onThemeChange }) {
                 <a
                   href="#"
                   onClick={handleAboutClick}
-                  className="inline-flex items-center text-xs text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300"
+                  className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200" // Updated style
                 >
                   <InformationCircleIcon className="w-4 h-4 mr-1" aria-hidden="true" />
                   <span>About</span>
                 </a>
                 <a
                   href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
-                  className="inline-flex items-center text-xs text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300"
+                  className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200" // Updated style
                 >
                   <EnvelopeIcon className="w-4 h-4 mr-1" aria-hidden="true" />
                   <span>Contact</span>
                 </a>
                 <div
                   onClick={() => setShowPrivacyModal(true)}
-                  className="inline-flex items-center text-xs text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 cursor-pointer"
+                  className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200 cursor-pointer" // Updated style
                 >
                   <ShieldCheckIcon className="w-4 h-4 mr-1" aria-hidden="true" />
                   <span>Privacy</span>
@@ -532,21 +519,21 @@ export default function LandingPage({ theme, onThemeChange }) {
                 <a
                   href="#"
                   onClick={handleAboutClick}
-                  className="inline-flex items-center text-xs text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300"
+                  className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200" // Updated style
                 >
                   <InformationCircleIcon className="w-4 h-4 mr-1" aria-hidden="true" />
                   <span>About</span>
                 </a>
                 <a
                   href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
-                  className="inline-flex items-center text-xs text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300"
+                  className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200" // Updated style
                 >
                   <EnvelopeIcon className="w-4 h-4 mr-1" aria-hidden="true" />
                   <span>Contact</span>
                 </a>
                 <div
                   onClick={() => setShowPrivacyModal(true)}
-                  className="inline-flex items-center text-xs text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 cursor-pointer"
+                  className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200 cursor-pointer" // Updated style
                 >
                   <ShieldCheckIcon className="w-4 h-4 mr-1" aria-hidden="true" />
                   <span>Privacy</span>

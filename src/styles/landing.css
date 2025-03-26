@@ -65,10 +65,7 @@ html, body {
 }
 
 /* Elegant gradients */
-.hero-gradient {
-  background: radial-gradient(circle at 50% 50%, var(--background) 0%, rgba(30, 41, 59, 0.8) 100%);
-  flex: 1; /* Allow the gradient to expand and fill available space */
-}
+/* .hero-gradient definition moved to index.css */
 
 .card-hover {
   transition: all 0.3s ease-in-out;
@@ -90,13 +87,7 @@ html, body {
   grid-auto-rows: 1fr; /* Set all rows in the grid to have equal height */
 }
 
-/* Glassmorphism effect */
-.glass {
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  background: rgba(var(--card-rgb), 0.7);
-  border: 1px solid rgba(var(--border-rgb), 0.2);
-}
+/* .glass style moved to src/index.css */
 
 /* Smooth scrolling */
 html {

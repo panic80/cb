@@ -1677,3 +1677,20 @@ body {
     border-bottom: 1px solid var(--border);
   }
 }
+
+
+
+/* Glassmorphism effect (Moved from landing.css) */
+.glass {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  background-color: var(--glass-bg, rgba(255, 255, 255, 0.7)); /* Default fallback */
+  border: 1px solid var(--glass-border, rgba(221, 221, 221, 0.2)); /* Default fallback */
+}
+
+
+/* Hero Gradient Background (Moved from landing.css) */
+.hero-gradient {
+  background: radial-gradient(circle at 50% 50%, var(--bg-primary) 0%, rgba(30, 41, 59, 0.8) 100%);
+  /* flex: 1; Might not be needed globally, apply flex-grow on specific elements */
+}
