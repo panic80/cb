@@ -36,13 +36,21 @@ npm run build
 
 ## Environment Setup
 
-This application uses environment variables for configuration. Create a `.env` file in the root directory:
+This application uses environment variables for configuration, particularly for sensitive data like API keys. To set up your local environment:
 
-```
-VITE_GEMINI_API_KEY=your-api-key-here
-PORT=3000
-PROXY_PORT=3001
-NODE_ENV=development
+1.  **Locate the example file:** In the project root directory, you'll find a file named `.env.example`.
+2.  **Create your environment file:** Make a copy of `.env.example` and rename the copy to `.env`. This `.env` file is already listed in `.gitignore`, ensuring your secrets are not accidentally committed.
+3.  **Set the API Key:** Open the `.env` file and replace the placeholder `YOUR_GOOGLE_AI_API_KEY_HERE` with your actual Google Gemini API key. This key is essential for the chatbot server functionality.
+
+Example `.env` content:
+```dotenv
+# Required for AI Chatbot functionality
+GEMINI_API_KEY=YOUR_GOOGLE_AI_API_KEY_HERE
+
+# Optional server configuration (defaults may apply if not set)
+# PORT=3000
+# PROXY_PORT=3001
+# NODE_ENV=development
 ```
 
 ## License

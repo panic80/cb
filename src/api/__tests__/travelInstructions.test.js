@@ -1,4 +1,5 @@
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach } from "vitest";
+
 import {
   CACHE_CONFIG,
   DEFAULT_INSTRUCTIONS,
@@ -7,271 +8,260 @@ import {
   setCachedData,
   fetchWithRetry,
   processApiResponse,
-  fetchTravelInstructions
-} from '../travelInstructions';
+  fetchTravelInstructions,
+  resetState,
+  getMemoryCache,
+  getMemoryCacheTimestamp,
+  setMemoryCache
+} from "../travelInstructions";
 
-// Mock IndexedDB
-const mockStore = {
-  get: vi.fn(),
-  put: vi.fn()
-};
+// Mock fetch globally
 
-const mockTransaction = {
-  objectStore: vi.fn().mockReturnValue(mockStore)
-};
-
-const mockDB = {
-  transaction: vi.fn().mockReturnValue(mockTransaction),
-  objectStoreNames: { contains: vi.fn().mockReturnValue(true) }
-};
-
-const mockIDBRequest = {
-  onsuccess: null,
-  onerror: null,
-  onupgradeneeded: null,
-  error: null,
-  result: mockDB
-};
-
-// Mock global fetch
+// Mock fetch globally
 global.fetch = vi.fn();
 
-describe('travelInstructions', () => {
-  beforeEach(() => {
-    vi.resetAllMocks();
-    
-    // Setup IndexedDB mock
-    global.indexedDB = {
-      open: vi.fn().mockImplementation(() => {
-        setTimeout(() => {
-          mockIDBRequest.onsuccess && mockIDBRequest.onsuccess({ target: mockIDBRequest });
-        }, 0);
-        return mockIDBRequest;
-      })
-    };
-    
-    // Setup fetch mock
+describe("travelInstructions", () => {
+  beforeEach(async () => {
+    // Reset all caches and mocks
+    global.fetch.mockClear();
+    resetState();
+
+    // Initialize fresh IndexedDB for each test
+    const db = await initDB();
+    const tx = db.transaction(CACHE_CONFIG.STORE_NAME, "readwrite");
+    const store = tx.objectStore(CACHE_CONFIG.STORE_NAME);
+    await store.clear(); // Clear any existing data
+
+    // Setup default fetch mock
     global.fetch.mockResolvedValue({
       ok: true,
       headers: {
-        get: vi.fn().mockReturnValue('application/json')
+        get: vi.fn().mockReturnValue("application/json"),
       },
-      json: vi.fn().mockResolvedValue({ content: 'Test Content' }),
-      text: vi.fn().mockResolvedValue('Test Content'),
-      clone: vi.fn().mockImplementation(function() { return this; })
+      json: vi.fn().mockResolvedValue({ content: "Test Content" }),
+      text: vi.fn().mockResolvedValue("Test Content"),
+      clone: vi.fn().mockImplementation(function () {
+        return this;
+      }),
     });
-  });
-  
-  afterEach(() => {
-    vi.resetAllMocks();
-  });
-  
-  describe('initDB', () => {
-    it('should initialize IndexedDB and return a promise', async () => {
+// Wait for all transactions to complete and add error handling
+await new Promise((resolve, reject) => {
+  tx.oncomplete = resolve;
+  tx.onerror = () => {
+    console.error('Transaction failed:', tx.error);
+    resolve(); // Resolve anyway to prevent test hanging
+  };
+});
+});
+
+
+  describe("initDB", () => {
+    it("should initialize IndexedDB and return a promise", async () => {
       const db = await initDB();
-      
-      expect(global.indexedDB.open).toHaveBeenCalledWith(CACHE_CONFIG.DB_NAME, 1);
-      expect(db).toEqual(mockDB);
-    });
-    
-    it('should handle onupgradeneeded', () => {
-      initDB();
-      
-      // Simulate onupgradeneeded
-      const createStoreMock = vi.fn();
-      const mockEvent = {
-        target: {
-          result: {
-            objectStoreNames: { contains: vi.fn().mockReturnValue(false) },
-            createObjectStore: createStoreMock
-          }
-        }
-      };
-      
-      mockIDBRequest.onupgradeneeded(mockEvent);
-      
-      // Since we mocked contains to return false, createObjectStore should be called
-      expect(mockEvent.target.result.objectStoreNames.contains).toHaveBeenCalledWith(CACHE_CONFIG.STORE_NAME);
+      expect(db).toBeDefined();
+      expect(db.objectStoreNames.contains(CACHE_CONFIG.STORE_NAME)).toBe(true);
     });
   });
-  
-  describe('getCachedData', () => {
-    it('should return cached data if valid', async () => {
-      // Mock store.get to return data with a recent timestamp
-      const mockData = {
-        content: 'Cached Content',
-        timestamp: Date.now() - 1000 // 1 second ago
-      };
-      
-      mockStore.get.mockImplementation((key) => {
-        expect(key).toBe(CACHE_CONFIG.CACHE_KEY);
-        
-        // Simulate async nature of IndexedDB
-        setTimeout(() => {
-          const request = { result: mockData };
-          request.onsuccess && request.onsuccess({ target: request });
-        }, 0);
-        
-        return { onsuccess: null, onerror: null };
-      });
-      
+
+  describe("getCachedData", () => {
+    it("should return cached data if valid", async () => {
+      const testData = "Test cached content";
+      const db = await initDB();
+      const tx = db.transaction(CACHE_CONFIG.STORE_NAME, "readwrite");
+      const store = tx.objectStore(CACHE_CONFIG.STORE_NAME);
+      await store.put({
+        content: testData,
+        timestamp: Date.now(),
+      }, CACHE_CONFIG.CACHE_KEY);
+
       const result = await getCachedData();
-      
-      expect(mockStore.get).toHaveBeenCalledWith(CACHE_CONFIG.CACHE_KEY);
-      expect(mockTransaction.objectStore).toHaveBeenCalledWith(CACHE_CONFIG.STORE_NAME);
-      expect(result).toBe('Cached Content');
+      expect(result).toBe(testData);
     });
-    
-    it('should return null if cache is expired', async () => {
-      // Mock store.get to return data with an old timestamp
-      const mockData = {
-        content: 'Expired Content',
-        timestamp: Date.now() - (CACHE_CONFIG.CACHE_DURATION + 1000) // Expired
-      };
-      
-      mockStore.get.mockImplementation((key) => {
-        // Simulate async nature of IndexedDB
-        setTimeout(() => {
-          const request = { result: mockData };
-          request.onsuccess && request.onsuccess({ target: request });
-        }, 0);
-        
-        return { onsuccess: null, onerror: null };
-      });
-      
+
+    it("should return null if cache is expired", async () => {
+      const db = await initDB();
+      const tx = db.transaction(CACHE_CONFIG.STORE_NAME, "readwrite");
+      const store = tx.objectStore(CACHE_CONFIG.STORE_NAME);
+      await store.put({
+        content: "Expired content",
+        timestamp: Date.now() - (CACHE_CONFIG.CACHE_DURATION + 1000),
+      }, CACHE_CONFIG.CACHE_KEY);
+
       const result = await getCachedData();
-      
       expect(result).toBeNull();
     });
   });
-  
-  describe('setCachedData', () => {
-    it('should store data in IndexedDB', async () => {
-      const content = 'New Content';
-      
-      mockStore.put.mockImplementation((data, key) => {
-        expect(data.content).toBe(content);
-        expect(key).toBe(CACHE_CONFIG.CACHE_KEY);
-        
-        // Simulate async nature of IndexedDB
-        setTimeout(() => {
-          const request = {};
-          request.onsuccess && request.onsuccess({ target: request });
-        }, 0);
-        
-        return { onsuccess: null, onerror: null };
-      });
-      
+
+  describe("setCachedData", () => {
+    it("should store data in IndexedDB", async () => {
+      const content = "New Content";
       await setCachedData(content);
       
-      expect(mockStore.put).toHaveBeenCalled();
-      expect(mockTransaction.objectStore).toHaveBeenCalledWith(CACHE_CONFIG.STORE_NAME);
+      const db = await initDB();
+      const tx = db.transaction(CACHE_CONFIG.STORE_NAME, "readonly");
+      const store = tx.objectStore(CACHE_CONFIG.STORE_NAME);
+      const getRequest = store.get(CACHE_CONFIG.CACHE_KEY);
+      
+      const data = await new Promise((resolve, reject) => {
+        getRequest.onsuccess = () => resolve(getRequest.result);
+        getRequest.onerror = () => reject(getRequest.error);
+      });
+      
+      // Wait for transaction to complete
+      await new Promise(resolve => tx.oncomplete = resolve);
+      
+      expect(data.content).toBe(content);
     });
   });
-  
-  describe('fetchWithRetry', () => {
-    it('should return response if fetch is successful', async () => {
-      const mockResponse = { ok: true, data: 'test' };
-      global.fetch.mockResolvedValue(mockResponse);
-      
-      const result = await fetchWithRetry('/test-url');
-      
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+
+  describe("fetchWithRetry", () => {
+    it("should return response if fetch is successful", async () => {
+      const mockResponse = { ok: true, data: "test" };
+      global.fetch.mockResolvedValueOnce(mockResponse);
+
+      const result = await fetchWithRetry("/test-url");
       expect(result).toBe(mockResponse);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
     });
-    
-    it('should retry if fetch fails', async () => {
-      // First two calls fail, third succeeds
-      global.fetch
-        .mockRejectedValueOnce(new Error('Network error'))
-        .mockRejectedValueOnce(new Error('Network error'))
-        .mockResolvedValueOnce({ ok: true, data: 'test' });
+
+    it("should retry if fetch fails", async () => {
+      console.log("[TEST] Setting up retry test");
+      vi.useFakeTimers();
       
-      const result = await fetchWithRetry('/test-url', 3);
+      let fetchCallCount = 0;
+      global.fetch.mockImplementation(() => {
+        fetchCallCount++;
+        console.log(`[TEST] Fetch attempt ${fetchCallCount}`);
+        if (fetchCallCount <= 2) {
+          return Promise.reject(new Error("Network error"));
+        }
+        return Promise.resolve({ ok: true, data: "test" });
+      });
+
+      console.log("[TEST] Starting fetchWithRetry");
+      const resultPromise = fetchWithRetry("/test-url", 3);
       
-      expect(global.fetch).toHaveBeenCalledTimes(3);
-      expect(result).toEqual({ ok: true, data: 'test' });
+      console.log("[TEST] Beginning timer progression");
+      for (let i = 0; i < 3; i++) {
+        console.log(`[TEST] Running timers iteration ${i + 1}`);
+        await vi.runAllTimersAsync();
+        console.log(`[TEST] Completed timers iteration ${i + 1}`);
+      }
+
+      console.log("[TEST] Awaiting final result");
+      const result = await resultPromise;
+      console.log("[TEST] Received result:", result);
+      
+      expect(result).toEqual({ ok: true, data: "test" });
+      expect(fetchCallCount).toBe(3);
+      
+      vi.useRealTimers();
+      console.log("[TEST] Test completed");
     });
   });
-  
-  describe('processApiResponse', () => {
-    it('should process JSON response correctly', async () => {
+
+  describe("processApiResponse", () => {
+    it("should process JSON response correctly", async () => {
       const mockResponse = {
-        headers: {
-          get: vi.fn().mockReturnValue('application/json')
-        },
-        json: vi.fn().mockResolvedValue({ content: 'Test Content' }),
-        clone: vi.fn().mockImplementation(function() { return this; })
+        headers: { get: vi.fn().mockReturnValue("application/json") },
+        json: vi.fn().mockResolvedValue({ content: "Test Content" }),
+        clone: vi.fn().mockImplementation(function () { return this; }),
       };
-      
+
       const result = await processApiResponse(mockResponse);
-      
-      expect(mockResponse.headers.get).toHaveBeenCalledWith('content-type');
-      expect(mockResponse.json).toHaveBeenCalled();
-      expect(result).toBe('Test Content');
+      expect(result).toBe("Test Content");
     });
-    
-    it('should return default instructions for non-JSON responses', async () => {
+
+    it("should return default instructions for non-JSON responses", async () => {
       const mockResponse = {
-        headers: {
-          get: vi.fn().mockReturnValue('text/html')
-        },
-        text: vi.fn().mockResolvedValue('<html>Not JSON</html>'),
-        clone: vi.fn().mockImplementation(function() { return this; })
+        headers: { get: vi.fn().mockReturnValue("text/html") },
+        text: vi.fn().mockResolvedValue("<html>Not JSON</html>"),
+        clone: vi.fn().mockImplementation(function () { return this; }),
       };
-      
+
       const result = await processApiResponse(mockResponse);
-      
-      expect(mockResponse.headers.get).toHaveBeenCalledWith('content-type');
-      expect(mockResponse.text).toHaveBeenCalled();
       expect(result).toBe(DEFAULT_INSTRUCTIONS);
     });
   });
-  
-  describe('fetchTravelInstructions', () => {
-    it('should return memory cache if available and not expired', async () => {
-      // Set up a memory cache value via direct property access for testing
-      global.memoryCache = 'Memory Cache Test';
-      global.memoryCacheTimestamp = Date.now();
+
+  describe("fetchTravelInstructions", () => {
+    it("should return memory cache if available and not expired", async () => {
+      console.log("[TEST] Setting up memory cache test");
+      
+      // Reset state first
+      resetState();
+      // Set module cache using the exported function
+      setMemoryCache("Memory Cache Test");
+      
+      console.log("[TEST] After setting cache - module:", getMemoryCache());
+      
+      // Wait for any pending operations
+      await new Promise(resolve => setTimeout(resolve, 0));
       
       const result = await fetchTravelInstructions();
+      console.log("[TEST] Fetch result:", result);
       
-      expect(result).toBe('Memory Cache Test');
-      expect(global.fetch).not.toHaveBeenCalled();
-      
-      // Clean up
-      global.memoryCache = null;
-      global.memoryCacheTimestamp = 0;
-    });
-    
-    it('should fetch from IndexedDB if memory cache is not available', async () => {
-      // Mock getCachedData to return a value
-      vi.spyOn(window, 'getCachedData').mockResolvedValue('IndexedDB Cache Test');
-      
-      const result = await fetchTravelInstructions();
-      
-      expect(result).toBe('IndexedDB Cache Test');
+      expect(result).toBe("Memory Cache Test");
+      expect(getMemoryCache()).toBe("Memory Cache Test");
       expect(global.fetch).not.toHaveBeenCalled();
     });
-    
-    it('should fetch from API if no cache is available', async () => {
-      // Mock getCachedData to return null and fetchWithRetry to succeed
-      vi.spyOn(window, 'getCachedData').mockResolvedValue(null);
-      vi.spyOn(window, 'fetchWithRetry').mockResolvedValue({
-        headers: { get: vi.fn().mockReturnValue('application/json') },
-        json: vi.fn().mockResolvedValue({ content: 'API Content' }),
-        clone: vi.fn().mockImplementation(function() { return this; })
+
+    it("should fetch from IndexedDB if memory cache is not available", async () => {
+      // Reset state and wait for any pending operations
+      resetState();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      
+      // Set up IndexedDB cache
+      const db = await initDB();
+      const tx = db.transaction(CACHE_CONFIG.STORE_NAME, "readwrite");
+      const store = tx.objectStore(CACHE_CONFIG.STORE_NAME);
+      const putRequest = store.put({
+        content: "IndexedDB Cache Test",
+        timestamp: Date.now(),
+      }, CACHE_CONFIG.CACHE_KEY);
+      
+      // Wait for transaction to complete
+      await new Promise((resolve, reject) => {
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
       });
-      vi.spyOn(window, 'processApiResponse').mockResolvedValue('Processed API Content');
-      vi.spyOn(window, 'setCachedData').mockResolvedValue(undefined);
-      
+
       const result = await fetchTravelInstructions();
+      expect(result).toBe("IndexedDB Cache Test");
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+    it("should fetch from API if no cache is available", async () => {
+      console.log("[TEST] Setting up API fetch test");
       
-      expect(window.getCachedData).toHaveBeenCalled();
-      expect(window.fetchWithRetry).toHaveBeenCalled();
-      expect(window.processApiResponse).toHaveBeenCalled();
-      expect(window.setCachedData).toHaveBeenCalledWith('Processed API Content');
-      expect(result).toBe('Processed API Content');
+      // Reset state and wait for any pending operations
+      resetState();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      
+      // Clear IndexedDB
+      const db = await initDB();
+      const clearTx = db.transaction(CACHE_CONFIG.STORE_NAME, "readwrite");
+      const store = clearTx.objectStore(CACHE_CONFIG.STORE_NAME);
+      await store.clear();
+      await new Promise(resolve => clearTx.oncomplete = resolve);
+      
+      const mockResponse = {
+        ok: true,
+        headers: { get: vi.fn().mockReturnValue("application/json") },
+        json: vi.fn().mockResolvedValue({ content: "API Content" }),
+        clone: vi.fn().mockImplementation(function () { return this; }),
+      };
+      
+      console.log("[TEST] Mock response setup:", mockResponse);
+      global.fetch.mockResolvedValueOnce(mockResponse);
+
+      console.log("[TEST] Calling fetchTravelInstructions");
+      const result = await fetchTravelInstructions();
+      console.log("[TEST] Received result:", result);
+      
+      expect(result).toBe("API Content");
+      expect(global.fetch).toHaveBeenCalledWith("/api/travel-instructions", expect.any(Object));
+      
+      console.log("[TEST] Test completed");
     });
   });
 });

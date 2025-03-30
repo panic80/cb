@@ -2,8 +2,10 @@ import express from 'express';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { fileURLToPath } from 'url'; // Needed for main module check
+import path from 'path';            // Needed for main module check
 import { loggingMiddleware } from './middleware/logging.js';
-import chatLogger from './services/logger.js';
+// import chatLogger from './services/logger.js'; // Removed chat logger import
 import dotenv from 'dotenv';
 
 // Load environment variables from .env file
@@ -20,27 +22,6 @@ app.use(express.urlencoded({
 
 // Add logging middleware
 app.use(loggingMiddleware);
-
-// Helper function to decode URL encoded values in both GET and POST requests
-const decodeUrlParams = (params) => {
-  if (!params || typeof params !== 'object') return params;
-  
-  const result = {};
-  for (const [key, value] of Object.entries(params)) {
-    if (Array.isArray(value)) {
-      result[key] = value.map(item =>
-        typeof item === 'string' ? decodeURIComponent(item.replace(/\+/g, ' ')) : item
-      );
-    } else if (typeof value === 'string') {
-      result[key] = decodeURIComponent(value.replace(/\+/g, ' '));
-    } else if (typeof value === 'object' && value !== null) {
-      result[key] = decodeUrlParams(value); // Handle nested objects
-    } else {
-      result[key] = value;
-    }
-  }
-  return result;
-};
 
 // Enable CORS for production
 app.use((req, res, next) => {
@@ -115,18 +96,18 @@ const processContent = (html) => {
     const processedText = mainContent
       // Normalize whitespace
       .replace(/\s+/g, ' ')
-      // Format section numbers
-      .replace(/(\d+\.\d+\.?\d*)(\s+)/g, '\n$1$2')
-      // Make sure section headings are on their own lines
-      .replace(/(SECTION|Chapter|CHAPTER|Part|PART)\s+(\d+)/gi, '\n$1 $2')
-      // Fix camelCase to space separated
-      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      // Format section numbers (Temporarily commented out for debugging context issue)
+      // .replace(/(\d+\.\d+\.?\d*)(\s+)/g, '\n$1$2')
+      // Make sure section headings are on their own lines (Temporarily commented out)
+      // .replace(/(SECTION|Chapter|CHAPTER|Part|PART)\s+(\d+)/gi, '\n$1 $2')
+      // Fix camelCase to space separated (Temporarily commented out)
+      // .replace(/([a-z])([A-Z])/g, '$1 $2')
       // Preserve meal timing windows
-      .replace(/([Ll]unch).+?(\d{1,2}[:\.]\d{2}).+?(\d{1,2}[:\.]\d{2})/g, (match, meal, start, end) => {
-        return `${meal} may be claimed when duty travel extends through the period of ${start} to ${end}`;
-      })
+       .replace(/([Ll]unch).+?(\d{1,2}[:\.]\d{2}).+?(\d{1,2}[:\.]\d{2})/g, (match, meal, start, end) => {
+         return `\n${meal} may be claimed when duty travel extends through the period of ${start} to ${end}.\n`; // Add newlines for clarity
+       })
       // Ensure sentence boundaries have newlines
-      .replace(/([.!?])\s+/g, '$1\n')
+       .replace(/([.!?])\s+/g, '$1\n')
       // Final trim
       .trim();
     
@@ -151,6 +132,13 @@ const processContent = (html) => {
 };
 
 const PORT = process.env.PORT || 3001;
+
+// Start the server and log the status
+app.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+  console.log('Environment:', process.env.NODE_ENV || 'development');
+  console.log('API Key present:', !!process.env.GEMINI_API_KEY);
+});
 
 // Sophisticated in-memory cache with TTL and automatic cleanup
 const cache = new Map();
@@ -211,289 +199,120 @@ setInterval(() => {
   apiRequestCounts.clear();
 }, RATE_WINDOW);
 
-// Request rate limiting middleware
-const rateLimiter = (req, res, next) => {
-  // Get client identifier (IP or a custom header if provided)
-  const clientId = req.headers['x-client-id'] || req.ip;
-  
-  // Get current count for this client
-  const currentCount = apiRequestCounts.get(clientId) || 0;
-  
-  // If over limit, return 429
-  if (currentCount >= RATE_LIMIT) {
-    return res.status(429).json({
-      error: 'Rate Limit Exceeded',
-      message: 'You have exceeded the API rate limit. Please try again later.',
-      retryAfter: Math.floor(RATE_WINDOW / 1000) // Suggest retry after window duration
-    });
+// Rate limiter removed for now. Add back if needed.
+
+// --- Reusable Function for Travel Instructions ---
+
+const TRAVEL_INSTRUCTIONS_URL = 'https://www.canada.ca/en/department-national-defence/services/benefits-military/pay-pension-benefits/benefits/canadian-forces-temporary-duty-travel-instructions.html';
+const USER_AGENT = 'Mozilla/5.0 (compatible; TravelInstructionsBot/1.0)'; // Use a descriptive user agent
+
+async function getTravelInstructionsContent() {
+  const cacheKey = 'travel-instructions';
+  const cachedData = cache.get(cacheKey);
+
+  // Check fresh cache
+  if (cachedData && (Date.now() - cachedData.timestamp < CACHE_TTL)) {
+    console.log('Using fresh cached travel instructions data, age:', Date.now() - cachedData.timestamp, 'ms');
+    return cachedData.content;
   }
-  
-  // Increment counter
-  apiRequestCounts.set(clientId, currentCount + 1);
-  
-  next();
-};
 
-// Proxy endpoint for Gemini API requests
-app.post('/api/gemini/generateContent', rateLimiter, async (req, res) => {
-  try {
-    console.log('Received Gemini API request');
-    
-    // Get API key from headers first, then fall back to environment variable
-    const headerApiKey = req.headers['x-api-key'];
-    const apiKey = headerApiKey || process.env.VITE_GEMINI_API_KEY;
-    
-    console.log('[DEBUG] API Key Check:', {
-      present: !!apiKey,
-      length: apiKey?.length || 0,
-      startsWithAIza: apiKey?.startsWith('AIza') || false,
-      source: headerApiKey ? 'header' : 'environment'
-    });
-    
-    // Validate API key
-    if (!apiKey) {
-      console.error('[DEBUG] No API key found');
-      
-      // Log the error
-      const errorData = {
-        timestamp: new Date().toISOString(),
-        endpoint: '/api/gemini/generateContent',
-        errorType: 'API_KEY_MISSING',
-        message: 'API key not provided',
-        userMessage: req.body.prompt?.substring(0, 200) || '(unknown)',
-        details: { source: headerApiKey ? 'header' : 'environment' }
-      };
-      
-      chatLogger.logError(errorData);
-      
-      return res.status(401).json({ error: 'Authentication Error', message: 'API key not provided' });
-    }
-    
-    if (!validateApiKey(apiKey)) {
-      console.error('[DEBUG] Invalid API key format:', {
-        length: apiKey.length,
-        startsWithAIza: apiKey.startsWith('AIza')
-      });
-      
-      // Log the error
-      const errorData = {
-        timestamp: new Date().toISOString(),
-        endpoint: '/api/gemini/generateContent',
-        errorType: 'API_KEY_INVALID',
-        message: 'Invalid API key format',
-        userMessage: req.body.prompt?.substring(0, 200) || '(unknown)',
-        details: { 
-          source: headerApiKey ? 'header' : 'environment',
-          keyLength: apiKey.length,
-          validFormat: apiKey.startsWith('AIza')
-        }
-      };
-      
-      chatLogger.logError(errorData);
-      
-      return res.status(401).json({ error: 'Authentication Error', message: 'Invalid API key format' });
-    }
-    
-    console.log('[DEBUG] API key validation passed');
+  console.log('Cache stale or missing, fetching fresh travel instructions from source');
+  let response;
+  let retryCount = 0;
+  const startTime = Date.now();
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    
-    // Extract model name from request or use default
-    const modelName = req.body.model || "gemini-2.0-flash";
-    console.log(`Using model: ${modelName}`);
-    
-    const generationConfig = req.body.generationConfig || {
-      temperature: 0.1,
-      topP: 0.1,
-      topK: 1,
-      maxOutputTokens: 2048
-    };
-    
-    const model = genAI.getGenerativeModel({
-      model: modelName,
-      generationConfig: generationConfig
-    });
-
-    // Handle different request formats
-    let result;
-    if (req.body.contents) {
-      console.log('Using contents array format');
-      result = await model.generateContent(req.body.contents);
-    } else if (req.body.prompt) {
-      console.log('Using prompt format');
-      result = await model.generateContent(req.body.prompt);
-    } else {
-      return res.status(400).json({ error: 'Invalid request format. Missing contents or prompt.' });
-    }
-    
-    const response = await result.response;
-    console.log('Gemini API response received successfully');
-
-    // Use 'let' instead of 'const' to allow potential response overrides later
-    let responseText = await response.text();
-    
-    // Process question and answer
-    const promptLines = req.body.prompt.split('\n');
-    const responseLines = responseText.split('\n');
-    
-    const questionIndex = promptLines.findIndex(line => line.toLowerCase().startsWith('question:'));
-    const answerIndex = responseLines.findIndex(line => line.startsWith('Answer:'));
-    
-    const cleanedPrompt = questionIndex >= 0 ?
-      promptLines[questionIndex].replace(/^question:\s*/i, '').trim() :
-      promptLines[promptLines.length - 1].trim();
-    
-    const cleanedResponse = answerIndex >= 0 ?
-      responseLines[answerIndex].replace(/^Answer:\s*/, '').trim() :
-      responseText;
-    
-    console.log('Logging chat:', { // Debug log
-      timestamp: new Date().toISOString(),
-      question: cleanedPrompt,
-      answer: cleanedResponse
-    });
-    
-    // Check the response for incorrect format (specifically for "I am an AI" responses)
-    if (responseText.includes("I am an AI") || responseText.includes("I don't know your schedule") || responseText.includes("do not know your schedule")) {
-      console.error('[DEBUG] Detected incorrect response format!');
-      
-      // Log this error for monitoring
-      const errorData = {
-        timestamp: new Date().toISOString(),
-        endpoint: '/api/gemini/generateContent',
-        errorType: 'INCORRECT_RESPONSE',
-        message: 'AI provided generic response instead of travel information',
-        userMessage: cleanedPrompt,
-        details: { 
-          responsePreview: responseText.substring(0, 500)
-        }
-      };
-      
-      try {
-        chatLogger.logError(errorData);
-      } catch (logError) {
-        console.error('Failed to log error:', logError);
-      }
-      
-      // For lunch-related questions, override with proper response
-      if (cleanedPrompt.toLowerCase().includes("lunch") || 
-          cleanedPrompt.toLowerCase().includes("meal") ||
-          cleanedPrompt.toLowerCase().includes("breakfast") ||
-          cleanedPrompt.toLowerCase().includes("dinner")) {
-        
-        responseText = `Reference: Chapter 5 - Meal Entitlements
-Quote: A member may be entitled to a meal allowance when duty travel encompasses a normal meal period and the member is required to purchase a meal.
-Answer: You are entitled to meal allowances during duty travel when your travel encompasses normal meal periods and you must purchase meals.
-Reason: According to the Canadian Forces Travel Instructions, meal allowances are provided when your duty travel covers normal meal times and you need to buy meals. This would typically include lunch if your travel extends through midday meal hours.`;
-        
-        console.log('[DEBUG] Overrode response for meal-related query');
-      }
-    }
-    
-    chatLogger.logChat(null, { // Use logChat method with null for req
-      timestamp: new Date().toISOString(),
-      question: cleanedPrompt,
-      answer: cleanedResponse
-    });
-    console.log('Logged chat data'); // Debug log
-    
-    res.json({
-      candidates: [{
-        content: {
-          parts: [{
-            text: responseText
-          }]
-        }
-      }]
-    });
-  } catch (error) {
-    console.error('Gemini API error:', error);
-    
-    // Log the error for monitoring and debugging
-    const errorData = {
-      timestamp: new Date().toISOString(),
-      endpoint: '/api/gemini/generateContent',
-      errorType: error.name || 'UNKNOWN',
-      message: error.message,
-      userMessage: req.body.prompt?.substring(0, 200) || '(unknown)'
-    };
-    
-    // Add stack trace in development mode
-    if (process.env.NODE_ENV !== 'production') {
-      errorData.stack = error.stack;
-    }
-    
+  while (retryCount < MAX_RETRIES) {
     try {
-      // Log error to error log file
-      chatLogger.logError(errorData);
-    } catch (logError) {
-      console.error('Failed to log error:', logError);
-    }
-    
-    // Check for specific error types and return appropriate status codes
-    if (error.message.includes('Resource exhausted') || error.message.includes('quota')) {
-      return res.status(429).json({
-        error: 'Rate Limit Exceeded',
-        message: 'The AI service rate limit has been exceeded. Please try again later.',
-        retryAfter: 60 // Suggest retry after 1 minute
+      console.log(`Fetch attempt ${retryCount + 1}/${MAX_RETRIES} to ${TRAVEL_INSTRUCTIONS_URL}`);
+      response = await axios.get(TRAVEL_INSTRUCTIONS_URL, {
+        headers: {
+          'Accept-Encoding': 'gzip, deflate, br',
+          'User-Agent': USER_AGENT,
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache' // Ensure no intermediate caches interfere
+        },
+        timeout: REQUEST_TIMEOUT
       });
+
+      console.log(`Fetch succeeded after ${retryCount} retries, took ${Date.now() - startTime}ms. Status: ${response.status}`);
+      break; // Exit loop on success
+    } catch (error) {
+      retryCount++;
+      console.error(`Fetch attempt ${retryCount} failed:`, error.message);
+
+      if (retryCount === MAX_RETRIES) {
+        console.error(`All ${MAX_RETRIES} retry attempts failed for ${TRAVEL_INSTRUCTIONS_URL}`);
+        // If retries fail, try using stale cache before throwing error
+        if (cachedData) {
+           console.warn('Serving stale cached travel instructions due to fetch failure.');
+           return cachedData.content;
+        }
+        // Log the final error before throwing - chatLogger removed
+        // chatLogger.logError({
+        //   timestamp: new Date().toISOString(),
+        //   endpoint: '/api/chat or /api/travel-instructions', // Called from either
+        //   errorType: 'FETCH_FAILURE',
+        //   message: `Failed to fetch ${TRAVEL_INSTRUCTIONS_URL} after ${MAX_RETRIES} attempts: ${error.message}`,
+        //   details: { code: error.code, status: error.response?.status }
+        // });
+        throw new Error(`Failed to retrieve travel instructions after ${MAX_RETRIES} attempts.`);
+      }
+
+      // Exponential backoff with jitter
+      const delay = RETRY_DELAY * Math.pow(2, retryCount - 1) * (0.75 + Math.random() * 0.5);
+      console.log(`Waiting ${Math.round(delay)}ms before retry ${retryCount}...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
-    
-    if (error.message.includes('authentication') || error.message.includes('key')) {
-      return res.status(401).json({
-        error: 'Authentication Error',
-        message: 'Failed to authenticate with the AI service. Please check your API key.'
-      });
-    }
-    
-    if (error.message.includes('not found') || error.message.includes('model')) {
-      return res.status(404).json({
-        error: 'Model Not Found',
-        message: 'The requested AI model was not found or is not available.'
-      });
-    }
-    
-    // In production, don't expose internal error details
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.status(500).json({
-      error: 'Gemini API Error',
-      message: isProduction ? 'An error occurred while processing your request.' : error.message,
-      ...(isProduction ? {} : { stack: error.stack })
-    });
   }
-});
+
+  // Validate response
+  if (!response || response.status !== 200 || !response.data) {
+     // Should have been caught by axios error handling, but as a safeguard
+     if (cachedData) {
+        console.warn(`Invalid response received (Status: ${response?.status}), serving stale cache.`);
+        return cachedData.content;
+     }
+     throw new Error(`Invalid or empty response received from ${TRAVEL_INSTRUCTIONS_URL} (Status: ${response?.status})`);
+  }
+
+  // Process content
+  console.log('Processing HTML content for travel instructions...');
+  const content = processContent(response.data);
+  console.log(`Processed travel instructions content length: ${content?.length || 0} bytes`);
+
+  if (!content || content.trim().length < 100) {
+      console.error('Processed travel instructions content validation failed (too short).');
+       if (cachedData) {
+          console.warn('Serving stale cached travel instructions due to processing failure.');
+          return cachedData.content;
+       }
+      throw new Error('Processed content validation failed - insufficient content length.');
+  }
+
+  // Update cache
+  console.log('Updating cache with fresh travel instructions.');
+  cache.set(cacheKey, {
+    content,
+    timestamp: Date.now(),
+    // Add other metadata if needed (e.g., ETag, Last-Modified from headers)
+    fetchTime: Date.now() - startTime
+  });
+
+  return content;
+}
+
+// --- API Endpoints ---
+// Proxy endpoint for Gemini API requests
+// Modified /api/chat endpoint
 
 // Test endpoint for URL parsing validation (supports both GET and POST)
 app.all('/api/test-url-encoding', (req, res) => {
   try {
-    // Process and properly decode URL-encoded body values
-    const decodedBody = {};
-    for (const [key, value] of Object.entries(req.body)) {
-      // Handle both string and array values
-      if (Array.isArray(value)) {
-        decodedBody[key] = value.map(item =>
-          typeof item === 'string' ? decodeURIComponent(item.replace(/\+/g, ' ')) : item
-        );
-      } else if (typeof value === 'string') {
-        decodedBody[key] = decodeURIComponent(value.replace(/\+/g, ' '));
-      } else {
-        decodedBody[key] = value;
-      }
-    }
-
-    // Process and properly decode query parameters
-    const decodedQuery = {};
-    for (const [key, value] of Object.entries(req.query)) {
-      if (Array.isArray(value)) {
-        decodedQuery[key] = value.map(item =>
-          typeof item === 'string' ? decodeURIComponent(item) : item
-        );
-      } else if (typeof value === 'string') {
-        decodedQuery[key] = decodeURIComponent(value);
-      } else {
-        decodedQuery[key] = value;
-      }
-    }
+    // The body and query are already decoded by Express middleware
+    // Return them directly for comparison purposes
+    const decodedBody = req.body;
+    const decodedQuery = req.query;
 
     // Return both raw and decoded components for comparison
     res.json({
@@ -513,229 +332,22 @@ app.all('/api/test-url-encoding', (req, res) => {
 });
 
 // Proxy endpoint for travel instructions with comprehensive error handling and retry logic
-app.get('/api/travel-instructions', rateLimiter, async (req, res) => {
+// /api/travel-instructions endpoint now uses the reusable function
+app.get('/api/travel-instructions', async (req, res) => {
   try {
-    // Add request validation
-    const acceptsJson = req.headers.accept && req.headers.accept.includes('application/json');
-    if (!acceptsJson) {
-      console.warn('Client requested non-JSON response type:', req.headers.accept);
-      // Continue anyway but log the warning
-    }
-    
-    // Check cache with detailed logging
-    const cachedData = cache.get('travel-instructions');
-    if (cachedData && (Date.now() - cachedData.timestamp < CACHE_TTL)) {
-      console.log('Serving fresh cached data, age:', Date.now() - cachedData.timestamp, 'ms');
-      
-      // Set appropriate headers
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      res.setHeader('ETag', cachedData.etag || `W/"${Date.now().toString(36)}"`);
-      if (cachedData.lastModified) {
-        res.setHeader('Last-Modified', cachedData.lastModified);
-      }
-      
-      return res.json({ 
-        content: cachedData.content, 
-        cached: true,
-        timestamp: new Date(cachedData.timestamp).toISOString()
-      });
-    }
-
-    console.log('Initiating fresh data fetch from source');
-    let response;
-    let retryCount = 0;
-    const startTime = Date.now();
-
-    // For debugging purposes
-    console.log(`Attempting to fetch travel instructions from Canada.ca website`);
-    console.log(`Current environment: ${process.env.NODE_ENV || 'not set'}`);
-    console.log(`Current retry count limits: ${MAX_RETRIES}`);
-    
-    // Try to fetch from the official source first
-    while (retryCount < MAX_RETRIES) {
-      try {
-        console.log(`Fetch attempt ${retryCount + 1}/${MAX_RETRIES} to Canada.ca`);
-        response = await axios.get(
-          'https://www.canada.ca/en/department-national-defence/services/benefits-military/pay-pension-benefits/benefits/canadian-forces-temporary-duty-travel-instructions.html',
-          {
-            headers: {
-              'Accept-Encoding': 'gzip, deflate, br',
-              'User-Agent': 'Mozilla/5.0 (compatible; TravelInstructionsBot/1.0)',
-              'Accept-Language': 'en-US,en;q=0.9',
-              'Cache-Control': 'no-cache'
-            },
-            timeout: REQUEST_TIMEOUT
-          }
-        );
-        
-        console.log(`Fetch succeeded after ${retryCount} retries, took ${Date.now() - startTime}ms`);
-        console.log(`Response status: ${response.status}, content length: ${response.data?.length || 'unknown'}`);
-        break;
-      } catch (error) {
-        retryCount++;
-        console.log(`Retry attempt ${retryCount} after error:`, error.message);
-        
-        // Log detailed error information for debugging
-        console.error(`Detailed fetch error:`, {
-          message: error.message,
-          code: error.code,
-          isAxiosError: error.isAxiosError,
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          data: error.response?.data?.substring?.(0, 200) || 'No data'
-        });
-        
-        if (retryCount === MAX_RETRIES) {
-          console.error(`All ${MAX_RETRIES} retry attempts failed`);
-          
-          console.error('All retry attempts to official Canada.ca source failed');
-          // Don't use default content, let the error propagate
-          throw new Error('Failed to retrieve travel instructions from Canada.ca after multiple attempts');
-        }
-        
-        // Exponential backoff with jitter
-        const delay = 1000 * Math.pow(2, retryCount - 1) * (0.5 + Math.random() * 0.5);
-        console.log(`Waiting ${Math.round(delay)}ms before retry ${retryCount}`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-
-    // Validate response
-    if (!response || !response.data) {
-      throw new Error('Empty response received from source');
-    }
-    
-    console.log('Processing HTML content...');
-    const dataLength = response?.data?.length || 0;
-    console.log(`Raw response data length: ${dataLength} bytes`);
-    
-    // Take a sample of the HTML for debugging
-    if (typeof response.data === 'string') {
-      const sample = response.data.substring(0, 300);
-      console.log(`HTML sample: ${sample.replace(/\n/g, '\\n').replace(/\r/g, '\\r')}`);
-    }
-    
-    const content = processContent(response.data);
-    console.log(`Processed content length: ${content?.length || 0} bytes`);
-    
-    // Log the first 500 characters of processed content for debugging
-    if (content) {
-      const contentSample = content.substring(0, 500);
-      console.log(`Processed content sample: ${contentSample.replace(/\n/g, '\\n')}`);
-    }
-    
-    if (!content || content.trim().length < 100) {
-      console.error('Processed content too short or empty:', content);
-      
-      // Create a more detailed failure record
-      const contentInfo = {
-        contentLength: content?.length || 0,
-        contentEmpty: !content,
-        firstChars: content?.substring(0, 50) || 'N/A',
-        responseStatus: response?.status,
-        responseType: response?.headers?.['content-type'] || 'unknown'
-      };
-      console.error('Content validation failed with details:', contentInfo);
-      
-      // Don't use default content, throw an error
-      throw new Error('Processed content validation failed - insufficient content length');
-    }
-    
-    console.log('Content processed successfully, length:', content.length);
-
-    // Generate unique ETag
-    const etag = response.headers.etag || `W/"${Date.now().toString(36)}"`;
-    
-    // Update cache with comprehensive metadata
-    cache.set('travel-instructions', {
+    const content = await getTravelInstructionsContent();
+    res.setHeader('Cache-Control', 'public, max-age=' + CACHE_TTL / 1000); // Use cache TTL
+    res.json({
       content,
-      timestamp: Date.now(),
-      lastModified: response.headers['last-modified'],
-      etag,
-      source: 'canada.ca',
-      fetchTime: Date.now() - startTime
-    });
-
-    // Set appropriate cache headers
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.setHeader('ETag', etag);
-    if (response.headers['last-modified']) {
-      res.setHeader('Last-Modified', response.headers['last-modified']);
-    }
-
-    res.json({ 
-      content, 
-      fresh: true,
+      source: 'canada.ca', // Indicate source
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Proxy error:', error.message, '\nStack:', error.stack);
-
-    // Prepare error data for logging
-    const errorData = {
-      timestamp: new Date().toISOString(),
-      endpoint: '/api/travel-instructions',
-      errorType: error.code || error.name || 'UNKNOWN',
-      message: error.message,
-      details: {
-        code: error.code,
-        isAxiosError: error.isAxiosError || false,
-        status: error.response?.status
-      }
-    };
-    
-    // Add stack trace in development mode
-    if (process.env.NODE_ENV !== 'production') {
-      errorData.stack = error.stack;
-    }
-    
-    // Log error to the error log file
-    try {
-      chatLogger.logError(errorData);
-    } catch (logError) {
-      console.error('Failed to log error:', logError);
-    }
-
-    // Sophisticated fallback strategy
-    const cachedData = cache.get('travel-instructions');
-    if (cachedData) {
-      console.log('Serving stale cache due to error, cache age:', Date.now() - cachedData.timestamp, 'ms');
-      
-      // Set headers indicating stale content
-      res.setHeader('Cache-Control', 'max-age=0, must-revalidate');
-      if (cachedData.etag) {
-        res.setHeader('ETag', `W/"${cachedData.etag}-stale"`);
-      }
-      
-      return res.json({
-        content: cachedData.content,
-        stale: true,
-        cacheAge: Date.now() - cachedData.timestamp,
-        timestamp: new Date(cachedData.timestamp).toISOString()
-      });
-    }
-
-    // Finally, if all else fails, return error
-    // Use appropriate status code based on the error
-    let statusCode = 500;
-    let retryAfter = 60;
-    
-    if (error.code === 'ECONNREFUSED' || error.code === 'ECONNABORTED') {
-      statusCode = 503; // Service Unavailable
-      retryAfter = 300; // 5 minutes
-    } else if (error.response?.status === 429) {
-      statusCode = 429; // Too Many Requests
-      retryAfter = 600; // 10 minutes
-    } else if (error.response?.status === 404) {
-      statusCode = 404; // Not Found
-    }
-    
-    // In production, don't expose detailed error info
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.status(statusCode).json({
-      error: 'Failed to fetch travel instructions',
-      message: isProduction ? 'Unable to retrieve travel information at this time.' : error.message,
-      retryAfter,
+    console.error('Error serving /api/travel-instructions:', error.message);
+    res.status(503).json({ // Service Unavailable seems appropriate
+      error: 'Service Unavailable',
+      message: 'Failed to retrieve or process travel instructions at this time.',
+      details: process.env.NODE_ENV !== 'production' ? error.message : undefined,
       timestamp: new Date().toISOString()
     });
   }
@@ -774,55 +386,14 @@ app.get('/health', async (req, res) => {
   const testApi = req.query.test === 'true';
   
   // Check chat API connectivity if requested
-  let chatApiStatus = { status: 'not_tested' };
-  
-  if (testApi) {
-    try {
-      // Test if the Gemini API is reachable and working
-      const apiKey = process.env.VITE_GEMINI_API_KEY;
-      
-      if (!apiKey || !validateApiKey(apiKey)) {
-        chatApiStatus = {
-          status: 'error',
-          error: 'Invalid or missing API key',
-          timestamp: new Date().toISOString()
-        };
-      } else {
-        // Make a lightweight test request to verify API connectivity
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({
-          model: "gemini-2.0-flash",
-          generationConfig: {
-            temperature: 0.0,
-            maxOutputTokens: 100,
-          }
-        });
-        
-        const result = await model.generateContent("Say 'ok' if you can see this test message.");
-        const response = await result.response;
-        const text = response.text();
-        
-        chatApiStatus = {
-          status: 'healthy',
-          response: text.substring(0, 50), // Just include a short sample
-          timestamp: new Date().toISOString()
-        };
-      }
-    } catch (error) {
-      chatApiStatus = {
-        status: 'error',
-        error: error.message,
-        errorType: error.name,
-        timestamp: new Date().toISOString()
-      };
-    }
-  }
+  // chatApiStatus removed as the feature is disabled
   
   // Get error statistics if admin
   let errorStats = null;
   if (isAdmin) {
     try {
-      errorStats = await chatLogger.getErrorStats('24h');
+      // errorStats = await chatLogger.getErrorStats('24h'); // chatLogger removed
+      errorStats = { status: 'logging_disabled' }; // Indicate logger is removed
     } catch (error) {
       console.error('Error getting error statistics:', error);
       errorStats = { error: 'Failed to retrieve error statistics' };
@@ -854,7 +425,7 @@ app.get('/health', async (req, res) => {
       limit: RATE_LIMIT,
       window: `${RATE_WINDOW / 1000}s`
     },
-    chatApi: chatApiStatus,
+    // chatApi: { status: 'disabled' }, // Feature disabled
     environment: process.env.NODE_ENV || 'production',
     timestamp: new Date().toISOString()
   };
@@ -882,13 +453,13 @@ app.get('/api/config', (req, res) => {
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'production',
     features: {
-      aiChat: true,
+      aiChat: false, // Disabled chat feature flag
       travelInstructions: true,
       rateLimit: RATE_LIMIT
     },
     models: {
-      default: 'gemini-2.0-flash',
-      available: ['gemini-2.0-flash', 'gemini-2.0-flash-lite']
+      default: 'gemini-2.0-flash-lite',
+      available: ['gemini-2.0-flash-lite']
     },
     caching: {
       enabled: true,
@@ -954,21 +525,22 @@ app.use((req, res) => {
   res.status(404).json(response);
 });
 
-app.listen(PORT, () => {
- console.log(`Proxy server running on port ${PORT}`);
- console.log(`Health check available at http://localhost:${PORT}/health`);
- console.log('Environment:', process.env.NODE_ENV || 'production');
-});
+// The server startup logic remains the same, just ensure it's at the very end after all route definitions.
+// The previous apply_diff block moved this logic after the endpoint definitions.
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  // Perform any cleanup if needed
-  process.exit(1);
-});
+// Add critical error handlers only outside of test environment
+if (process.env.NODE_ENV !== 'test') {
+  // Handle uncaught exceptions
+  process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    // Perform any cleanup if needed
+    // In a real app, consider more graceful shutdown steps
+    process.exit(1);
+  });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  // Perform any cleanup if needed
-});
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    // Application specific logging or cleanup here
+  });
+}

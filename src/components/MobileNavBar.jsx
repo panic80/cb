@@ -1,12 +1,14 @@
-import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+// Removed unused React import
 
-function MobileNavBar({ theme, toggleTheme }) {
+import { Link, useLocation } from "react-router-dom";
+
+function MobileNavBar({ _theme, _toggleTheme }) {
+  // Prefix unused props
   const location = useLocation();
   const isActive = (path) => location.pathname === path;
   return (
     <nav className="hidden">
-      <Link to="/" className={`nav-item ${isActive('/') ? 'active' : ''}`}>
+      <Link to="/" className={`nav-item ${isActive("/") ? "active" : ""}`}>
         <svg
           width="20"
           height="20"
@@ -23,7 +25,10 @@ function MobileNavBar({ theme, toggleTheme }) {
         </svg>
         <span>Ask</span>
       </Link>
-      <Link to="/report" className={`nav-item ${isActive('/report') ? 'active' : ''}`}>
+      <Link
+        to="/report"
+        className={`nav-item ${isActive("/report") ? "active" : ""}`}
+      >
         <svg
           width="20"
           height="20"
@@ -40,7 +45,10 @@ function MobileNavBar({ theme, toggleTheme }) {
         </svg>
         <span>Report</span>
       </Link>
-      <Link to="/faq" className={`nav-item ${isActive('/faq') ? 'active' : ''}`}>
+      <Link
+        to="/faq"
+        className={`nav-item ${isActive("/faq") ? "active" : ""}`}
+      >
         <svg
           width="20"
           height="20"
@@ -63,7 +71,10 @@ function MobileNavBar({ theme, toggleTheme }) {
         </svg>
         <span>FAQ</span>
       </Link>
-      <Link to="/contact" className={`nav-item ${isActive('/contact') ? 'active' : ''}`}>
+      <Link
+        to="/contact"
+        className={`nav-item ${isActive("/contact") ? "active" : ""}`}
+      >
         <svg
           width="20"
           height="20"

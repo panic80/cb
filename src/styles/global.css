@@ -1,7 +1,7 @@
 :root {
   /* Theme transition duration */
   --theme-transition: 0.3s ease-in-out;
-  
+
   /* Light theme */
   &[data-theme="light"] {
     --background: #ffffff;

@@ -9,19 +9,19 @@ This application follows a client-server architecture with the following compone
 3. **Proxy Server**: Separate Express server that handles API calls to external services
 
 ```
-┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
-│                 │      │                 │      │                 │
-│  React Frontend │◄────►│   Main Server   │◄────►│  Proxy Server   │
-│                 │      │                 │      │                 │
-└─────────────────┘      └─────────────────┘      └─────────────────┘
-                                                          │
-                                                          ▼
-                                               ┌─────────────────────┐
-                                               │                     │
-                                               │  External Services  │
-                                               │  (Gemini API, etc.) │
-                                               │                     │
-                                               └─────────────────────┘
+???????????????????      ???????????????????      ???????????????????
+?                 ?      ?                 ?      ?                 ?
+?  React Frontend ????????   Main Server   ????????  Proxy Server   ?
+?                 ?      ?                 ?      ?                 ?
+???????????????????      ???????????????????      ???????????????????
+                                                          ?
+                                                          ?
+                                               ???????????????????????
+                                               ?                     ?
+                                               ?  External Services  ?
+                                               ?  (Gemini API, etc.) ?
+                                               ?                     ?
+                                               ???????????????????????
 ```
 
 ## Frontend Architecture
@@ -34,13 +34,12 @@ The frontend is built with React and follows a component-based architecture:
 - **src/utils**: Utility functions
 - **src/styles**: CSS styles
 - **src/theme**: Theming system
-- **src/new-chat-interface**: Modern chat interface implementation
+{/* Removed reference to src/new-chat-interface */}
 
 ### Key Components
 
-1. **Chat System**: Multiple chat interface implementations
-2. **Theme System**: Dark/light mode theming support
-3. **API Integration**: Client-side API integration with caching
+1. **Theme System**: Dark/light mode theming support
+2. **API Integration**: Client-side API integration with caching
 
 ## Backend Architecture
 

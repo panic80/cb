@@ -1,6 +1,11 @@
-import React, { createContext, useContext, useReducer, ReactNode } from 'react';
+import React, { createContext, useContext, useReducer, ReactNode } from "react";
 
-export type LoadingStage = 'url-scanning' | 'parsing' | 'validation' | 'complete' | 'error';
+export type LoadingStage =
+  | "url-scanning"
+  | "parsing"
+  | "validation"
+  | "complete"
+  | "error";
 
 interface LoadingState {
   isLoading: boolean;
@@ -11,21 +16,24 @@ interface LoadingState {
 }
 
 type LoadingAction =
-  | { type: 'SET_STAGE'; payload: { stage: LoadingStage; message: string } }
-  | { type: 'SET_PROGRESS'; payload: number }
-  | { type: 'SET_ERROR'; payload: string }
-  | { type: 'RESET' };
+  | { type: "SET_STAGE"; payload: { stage: LoadingStage; message: string } }
+  | { type: "SET_PROGRESS"; payload: number }
+  | { type: "SET_ERROR"; payload: string }
+  | { type: "RESET" };
 
 const initialState: LoadingState = {
   isLoading: false,
-  stage: 'url-scanning',
+  stage: "url-scanning",
   progress: 0,
-  message: 'Initializing...',
+  message: "Initializing...",
 };
 
-const loadingReducer = (state: LoadingState, action: LoadingAction): LoadingState => {
+const loadingReducer = (
+  state: LoadingState,
+  action: LoadingAction
+): LoadingState => {
   switch (action.type) {
-    case 'SET_STAGE':
+    case "SET_STAGE":
       return {
         ...state,
         isLoading: true,
@@ -33,18 +41,18 @@ const loadingReducer = (state: LoadingState, action: LoadingAction): LoadingStat
         message: action.payload.message,
         error: undefined,
       };
-    case 'SET_PROGRESS':
+    case "SET_PROGRESS":
       return {
         ...state,
         progress: Math.min(100, Math.max(0, action.payload)),
       };
-    case 'SET_ERROR':
+    case "SET_ERROR":
       return {
         ...state,
-        stage: 'error',
+        stage: "error",
         error: action.payload,
       };
-    case 'RESET':
+    case "RESET":
       return initialState;
     default:
       return state;
@@ -62,12 +70,14 @@ const LoadingContext = createContext<{
 export const useLoading = () => {
   const context = useContext(LoadingContext);
   if (!context) {
-    throw new Error('useLoading must be used within a LoadingProvider');
+    throw new Error("useLoading must be used within a LoadingProvider");
   }
   return context;
 };
 
-export const LoadingProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const LoadingProvider: React.FC<{ children: ReactNode }> = ({
+  children,
+}) => {
   const [state, dispatch] = useReducer(loadingReducer, initialState);
 
   return (
@@ -80,22 +90,34 @@ export const LoadingProvider: React.FC<{ children: ReactNode }> = ({ children })
 // Utility functions for stage management
 export const getStagePercentage = (stage: LoadingStage): number => {
   switch (stage) {
-    case 'url-scanning': return 25;
-    case 'parsing': return 50;
-    case 'validation': return 75;
-    case 'complete': return 100;
-    case 'error': return 100;
-    default: return 0;
+    case "url-scanning":
+      return 25;
+    case "parsing":
+      return 50;
+    case "validation":
+      return 75;
+    case "complete":
+      return 100;
+    case "error":
+      return 100;
+    default:
+      return 0;
   }
 };
 
 export const getStageMessage = (stage: LoadingStage): string => {
   switch (stage) {
-    case 'url-scanning': return 'Analyzing URL structure...';
-    case 'parsing': return 'Extracting URL components...';
-    case 'validation': return 'Validating URL format...';
-    case 'complete': return 'URL processing complete';
-    case 'error': return 'Error processing URL';
-    default: return 'Processing...';
+    case "url-scanning":
+      return "Analyzing URL structure...";
+    case "parsing":
+      return "Extracting URL components...";
+    case "validation":
+      return "Validating URL format...";
+    case "complete":
+      return "URL processing complete";
+    case "error":
+      return "Error processing URL";
+    default:
+      return "Processing...";
   }
 };

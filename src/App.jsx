@@ -1,21 +1,22 @@
-import React, { useState, useEffect, lazy, Suspense, startTransition } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { sendToGemini } from './api/gemini.jsx';
-import { fetchTravelInstructions } from './api/travelInstructions';
-import { addQuestion } from './api/questionAnalysis';
-import './index.css';
-import EliteChatAdapter from './new-chat-interface/EliteChatAdapter.tsx';
-import LandingPage from './pages/LandingPage.jsx';
+import { useState, useEffect, lazy, Suspense, startTransition } from "react"; // Removed unused React import
+
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+
+import { fetchTravelInstructions } from "./api/travelInstructions";
+import "./index.css";
+// import EliteChatAdapter from "./new-chat-interface/EliteChatAdapter.tsx"; // Removed broken import
+import LandingPage from "./pages/LandingPage.jsx";
 
 // Lazy load components
-const Hero = lazy(() => import('./components/Hero'));
-const ThemeToggle = lazy(() => import('./components/ThemeToggle'));
-const MobileNavBar = lazy(() => import('./components/MobileNavBar.jsx'));
-const FAQPage = lazy(() => import('./pages/FAQPage.jsx'));
-const PrivacyPage = lazy(() => import('./pages/PrivacyPage.jsx'));
-const ModernChatPage = lazy(() => import('./pages/ModernChatPage'));
-const OPIPage = lazy(() => import('./pages/OPIPage'));
-
+// Removed unused Hero import
+// Removed unused ThemeToggle import
+const MobileNavBar = lazy(() => import("./components/MobileNavBar.jsx"));
+const FAQPage = lazy(() => import("./pages/FAQPage.jsx"));
+const PrivacyPage = lazy(() => import("./pages/PrivacyPage.jsx"));
+// Removed unused ModernChatPage import
+const OPIPage = lazy(() => import("./pages/OPIPage"));
+const ChatbotWidget = lazy(() => import("./components/ChatbotWidget.jsx")); // Added chatbot widget import
+// const PolicyChatPage = lazy(() => import("./pages/PolicyChatPage.tsx")); // Removed chat page import
 // Prefetch components
 const prefetchComponent = (importFn) => {
   const prefetchTimeoutId = setTimeout(() => {
@@ -28,8 +29,8 @@ const App = () => {
   const [state, setState] = useState({
     isPreloading: true,
     travelInstructions: null,
-    input: '',
-    theme: 'light',
+    input: "",
+    theme: "light",
     sidebarCollapsed: false,
     isMobile: false,
     isLoading: false,
@@ -37,26 +38,19 @@ const App = () => {
     typingTimeout: null,
     isFirstInteraction: true,
     isSimplified: false,
-    model: 'models/gemini-2.0-flash-001'
+    model: "models/gemini-2.0-flash-001",
   });
 
-  const [messages, setMessages] = useState([
-    {
-      text: "Welcome! I'm here to help answer your questions about the Canadian Forces Temporary Duty Travel Instructions. What would you like to know?",
-      type: 'bot',
-      sources: [],
-      simplified: false
-    }
-  ]);
+  // Removed unused messages state
 
   // Prefetch components on mount
   useEffect(() => {
     const cleanupFns = [
-      prefetchComponent(() => import('./components/Hero')),
-      prefetchComponent(() => import('./pages/ModernChatPage')),
-      prefetchComponent(() => import('./components/MobileToggle'))
+      prefetchComponent(() => import("./components/Hero")),
+      // prefetchComponent(() => import("./pages/ModernChatPage")), // Removed prefetch for removed page
+      prefetchComponent(() => import("./components/MobileToggle")),
     ];
-    return () => cleanupFns.forEach(cleanup => cleanup());
+    return () => cleanupFns.forEach((cleanup) => cleanup());
   }, []);
 
   // Preload data
@@ -65,15 +59,15 @@ const App = () => {
       try {
         const data = await fetchTravelInstructions();
         startTransition(() => {
-          setState(prev => ({
+          setState((prev) => ({
             ...prev,
             travelInstructions: data,
-            isPreloading: false
+            isPreloading: false,
           }));
         });
       } catch (error) {
-        console.error('Error preloading travel instructions:', error);
-        setState(prev => ({ ...prev, isPreloading: false }));
+        console.error("Error preloading travel instructions:", error);
+        setState((prev) => ({ ...prev, isPreloading: false }));
       }
     };
 
@@ -83,22 +77,25 @@ const App = () => {
   // Theme and mobile updates
   useEffect(() => {
     const root = document.documentElement;
-    root.setAttribute('data-theme', state.theme);
-    root.setAttribute('data-mobile', state.manualMobileToggle || state.isMobile);
-    
+    root.setAttribute("data-theme", state.theme);
+    root.setAttribute(
+      "data-mobile",
+      state.manualMobileToggle || state.isMobile
+    );
+
     // Add/remove class for theme to support CSS selectors in unified-chat.css
-    if (state.theme === 'light') {
-      root.classList.add('light');
-      root.classList.remove('dark');
+    if (state.theme === "light") {
+      root.classList.add("light");
+      root.classList.remove("dark");
     } else {
-      root.classList.add('dark');
-      root.classList.remove('light');
+      root.classList.add("dark");
+      root.classList.remove("light");
     }
-    
+
     // Force a repaint to ensure theme changes are applied immediately
-    root.style.display = 'none';
+    root.style.display = "none";
     root.offsetHeight; // Trigger reflow
-    root.style.display = '';
+    root.style.display = "";
   }, [state.theme, state.manualMobileToggle, state.isMobile]);
 
   // Resize handler with debounce
@@ -107,14 +104,14 @@ const App = () => {
     const handleResize = () => {
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
-        setState(prev => ({ ...prev, isMobile: window.innerWidth < 768 }));
+        setState((prev) => ({ ...prev, isMobile: window.innerWidth < 768 }));
       }, 150);
     };
 
     handleResize();
-    window.addEventListener('resize', handleResize);
+    window.addEventListener("resize", handleResize);
     return () => {
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener("resize", handleResize);
       clearTimeout(resizeTimeout);
     };
   }, []);
@@ -124,148 +121,93 @@ const App = () => {
     // First set it on load
     const setVhProperty = () => {
       const vh = window.innerHeight * 0.01;
-      document.documentElement.style.setProperty('--vh', `${vh}px`);
+      document.documentElement.style.setProperty("--vh", `${vh}px`);
     };
-    
+
     setVhProperty();
-    
+
     // Then update on resize
-    window.addEventListener('resize', setVhProperty);
-    return () => window.removeEventListener('resize', setVhProperty);
+    window.addEventListener("resize", setVhProperty);
+    return () => window.removeEventListener("resize", setVhProperty);
   }, []);
 
-  // Message handling with optimized state updates
-  const handleSend = async () => {
-    if (!state.input.trim()) return;
+  // Removed unused handleSend function
 
-    setState(prev => ({ ...prev, isLoading: true }));
-    const userMessage = { text: state.input, type: 'user' };
-    
-    startTransition(() => {
-      setMessages(prev => [...prev, userMessage]);
-      setState(prev => ({
-        ...prev,
-        input: '',
-        isFirstInteraction: false
-      }));
-    });
-
-    try {
-      if (!state.travelInstructions) {
-        throw new Error('Travel instructions not loaded yet. Please try again in a moment.');
-      }
-
-      // Track the question for FAQ analysis and trigger update
-      await addQuestion(state.input);
-      window.dispatchEvent(new Event('questionAdded'));
-
-      const response = await sendToGemini(
-        state.input,
-        state.isSimplified,
-        state.model,
-        state.travelInstructions
-      );
-      
-      startTransition(() => {
-        setMessages(prev => [
-          ...prev,
-          {
-            text: response.text,
-            type: 'bot',
-            sources: response.sources,
-            simplified: state.isSimplified
-          }
-        ]);
-      });
-    } catch (error) {
-      console.error('Chat Error:', {
-        message: error.message,
-        stack: error.stack
-      });
-      
-      startTransition(() => {
-        setMessages(prev => [
-          ...prev,
-          {
-            text: `Error: ${error.message}`,
-            type: 'bot',
-            sources: []
-          }
-        ]);
-      });
-    } finally {
-      setState(prev => ({ ...prev, isLoading: false }));
-    }
-  };
-
-  // Typing indicator with debounce
-  const handleTyping = () => {
-    if (state.isFirstInteraction) return;
-
-    if (!state.isTyping) {
-      setState(prev => ({ ...prev, isTyping: true }));
-    }
-    
-    if (state.typingTimeout) {
-      clearTimeout(state.typingTimeout);
-    }
-    
-    const timeout = setTimeout(() => {
-      setState(prev => ({ ...prev, isTyping: false }));
-    }, 1000);
-    
-    setState(prev => ({ ...prev, typingTimeout: timeout }));
-  };
+  // Removed unused handleTyping function
 
   return (
     <Router>
-      <div className="w-screen min-h-screen overflow-x-hidden overflow-y-auto m-0 p-0 max-w-[100vw]">
+      <div className="w-screen min-h-screen h-full overflow-x-hidden overflow-y-auto m-0 p-0 max-w-[100vw]"> {/* Added h-full */}
         <Suspense fallback={<div className="min-h-screen bg-background" />}>
           {state.isMobile && (
             <MobileNavBar
               theme={state.theme}
-              toggleTheme={() => setState(prev => ({
-                ...prev,
-                theme: prev.theme === 'light' ? 'dark' : 'light'
-              }))}
+              toggleTheme={() =>
+                setState((prev) => ({
+                  ...prev,
+                  theme: prev.theme === "light" ? "dark" : "light",
+                }))
+              }
             />
           )}
           <Routes>
-            <Route path="/" element={
-              <Suspense fallback={<div className="min-h-screen bg-background" />}>
-                <LandingPage 
-                  theme={state.theme}
-                  onThemeChange={(newTheme) => setState(prev => ({ ...prev, theme: newTheme }))}
-                />
-              </Suspense>
-            } />
-            <Route path="/chat" element={
-              <Suspense fallback={<div className="min-h-screen bg-background" />}>
-                <EliteChatAdapter 
-                  theme={state.theme} 
-                  onThemeChange={(newTheme) => setState(prev => ({ ...prev, theme: newTheme }))}
-                />
-              </Suspense>
-            } />
-            <Route path="/faq" element={
-              <Suspense fallback={<div className="min-h-screen bg-background" />}>
-                <FAQPage />
-              </Suspense>
-            } />
-            <Route path="/privacy" element={
-              <Suspense fallback={<div className="min-h-screen bg-background" />}>
-                <PrivacyPage />
-              </Suspense>
-            } />
-            <Route path="/opi" element={
-              <Suspense fallback={<div className="min-h-screen bg-background" />}>
-                <OPIPage 
-                  theme={state.theme}
-                  onThemeChange={(newTheme) => setState(prev => ({ ...prev, theme: newTheme }))}
-                />
-              </Suspense>
-            } />
+            <Route
+              path="/"
+              element={
+                <Suspense
+                  fallback={<div className="min-h-screen bg-background" />}
+                >
+                  <LandingPage
+                    theme={state.theme}
+                    onThemeChange={(newTheme) =>
+                      setState((prev) => ({ ...prev, theme: newTheme }))
+                    }
+                  />
+                </Suspense>
+              }
+            />
+            {/* Removed /chat route */}
+            <Route
+              path="/faq"
+              element={
+                <Suspense
+                  fallback={<div className="min-h-screen bg-background" />}
+                >
+                  <FAQPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/privacy"
+              element={
+                <Suspense
+                  fallback={<div className="min-h-screen bg-background" />}
+                >
+                  <PrivacyPage />
+                </Suspense>
+              }
+            />
+            {/* Removed /policy-chat route */}
+            <Route
+              path="/opi"
+              element={
+                <Suspense
+                  fallback={<div className="min-h-screen bg-background" />}
+                >
+                  <OPIPage
+                    theme={state.theme}
+                    onThemeChange={(newTheme) =>
+                      setState((prev) => ({ ...prev, theme: newTheme }))
+                    }
+                  />
+                </Suspense>
+              }
+            />
           </Routes>
+        </Suspense>
+        {/* Render Chatbot Widget globally */}
+        <Suspense fallback={null}> {/* No specific fallback needed for the widget itself */}
+           <ChatbotWidget />
         </Suspense>
       </div>
     </Router>

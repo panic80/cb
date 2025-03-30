@@ -6,8 +6,22 @@ import nodemailer from 'nodemailer';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { loggingMiddleware } from './middleware/logging.js';
-import chatLogger from './services/logger.js';
+import { initializeRagService, retrieveChunks } from './services/ragService.js'; // Added RAG service import
+import { getGenerationConfig } from '../src/api/gemini.js'; // Import config getter
 
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import dotenv from 'dotenv';
+
+dotenv.config(); // Ensure env vars are loaded
+
+// Setup Gemini Generative Client
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+if (!GEMINI_API_KEY) {
+  console.error('FATAL ERROR: GEMINI_API_KEY environment variable is not set for generative model.');
+  // process.exit(1); // Consider exiting if the key is crucial for core functionality
+}
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const generativeModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" }); // Or another suitable model
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -20,6 +34,7 @@ app.use(express.json());
 // Constants for direct API call
 const MAX_RETRIES = 3;
 const REQUEST_TIMEOUT = 10000; // 10 seconds
+const MAX_ANSWER_SENTENCES = 3; // Maximum sentences for the chatbot's answer
 
 // Process content with enhanced formatting and semantic structure preservation
 const processContent = (html) => {
@@ -96,6 +111,39 @@ const processContent = (html) => {
   }
 };
 
+// Function to detect and format potential tabular data in text
+const detectAndFormatTable = (text) => {
+  // Placeholder implementation - Enhance with actual detection logic (regex, heuristics)
+  // Example: Detect simple markdown tables
+  const markdownTableRegex = /^\|.+\|\n\|[- :|]+\|\n(\|.+\|\n)+/m;
+  const match = text.match(markdownTableRegex);
+
+  if (match) {
+    const tableLines = match[0].trim().split('\n');
+    const headers = tableLines[0].split('|').map(h => h.trim()).filter(h => h); // Extract headers
+    const rows = tableLines.slice(2).map(rowLine => {
+      const cells = rowLine.split('|').map(c => c.trim()).filter(c => c); // Extract cells
+      let rowObj = {};
+      headers.forEach((header, index) => {
+        rowObj[header] = cells[index] || ''; // Map cells to headers
+      });
+      return rowObj;
+    });
+
+    return {
+      isTable: true,
+      tableData: rows,
+      // Optionally, return the raw matched text or modify the original text
+    };
+  }
+
+  // Add more heuristics here (e.g., lists, key-value pairs)
+
+  // Default: Not a table
+  return { isTable: false, tableData: null };
+};
+
+
 // Enable CORS and logging middlewares
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -106,17 +154,7 @@ app.use((req, res, next) => {
 // Add logging middleware
 app.use(loggingMiddleware);
 
-// Add response logging for chat endpoints
-app.use('/api/chat', async (req, res, next) => {
-  const originalJson = res.json;
-  res.json = function(data) {
-    if (req.body && req.body.message) {
-      chatLogger.logChat(req, req.body.message, data.response || '');
-    }
-    return originalJson.apply(res, arguments);
-  };
-  next();
-});
+// Removed response logging middleware for chat endpoints
 
 // API routes first with enhanced error handling
 // In development and production, we proxy to the proxy server
@@ -131,6 +169,104 @@ app.use((req, res, next) => {
 
 // In production, proxy all API requests including travel-instructions
 console.log(isDevelopment ? 'Development mode' : 'Production mode' + ': Proxying travel instructions to proxy server');
+
+/* --- API v2 Chatbot Route --- */
+app.post('/api/v2/chat', async (req, res) => {
+  const { message } = req.body;
+
+  if (!message || typeof message !== 'string' || message.trim().length === 0) {
+    return res.status(400).json({ error: 'Bad Request', message: 'Message must be a non-empty string.' });
+  }
+
+  try {
+    console.log(`Received chat message: "${message}"`);
+    // 1. Retrieve relevant chunks using RAG service
+    const { chunks: contextChunks, sources } = await retrieveChunks(message);
+
+    if (!contextChunks || contextChunks.length === 0) {
+      console.warn(`No relevant context found for message: "${message}"`);
+      // Fallback response if no context is found
+      return res.json({ reply: "I couldn't find specific information related to your question in the travel instructions." });
+    }
+
+    // 2. Construct the prompt for the generative model
+    // Construct context using source information
+    const contextText = contextChunks.map((chunk) => {
+        // Prefer sourceTitle, fallback to sourceUrl if title is missing or generic
+        const sourceLabel = (chunk.sourceTitle && chunk.sourceTitle !== 'Untitled Document') ? chunk.sourceTitle : chunk.sourceUrl;
+        return `Context from ${sourceLabel}:\n${chunk.text}`;
+    }).join('\n\n---\n\n');
+    const prompt = `
+You are an AI assistant specializing SOLELY in the Canadian Forces Temporary Duty Travel Instructions. Your single purpose is to provide EXHAUSTIVE and DETAILED answers based *strictly* and *exclusively* on the context provided below.
+
+**Critical Instructions - Adhere Strictly:**
+1.  **Base Response ENTIRELY on Provided Context:** Do NOT use any external knowledge, assumptions, or information outside the "Context from Travel Instructions" section below.
+2.  **Demand for Verbosity:** Provide a THOROUGH, multi-sentence answer. Do NOT be brief. Elaborate significantly. Explain the reasoning clearly and fully.
+3.  **Extract Specifics:** If the context contains specific rules, conditions, rates, or examples, INCLUDE them explicitly in your answer.
+4.  **Explain Conditions:** If the answer depends on certain conditions mentioned in the context, clearly state those conditions and how they affect the outcome.
+5.  **No Context = State Clearly:** If the provided context chunks definitively DO NOT contain the information needed to answer the question, explicitly state that the information is not available *in the provided sections* of the travel instructions. Do not guess or infer.
+6.  **Follow Format:** Adhere strictly to the "Required Output Format" below.
+7.  **Sentence Limit:** Limit your final "Answer:" to a maximum of ${MAX_ANSWER_SENTENCES} sentences. Be concise but complete within this limit.
+8.  **Priotize** Make sure to prioritize rates, dollar amonunts, fees in the beginning of the answer.
+
+
+**Required Output Format:**
+Answer: <Write a comprehensive, detailed, multi-sentence answer here, incorporating specifics and explanations directly from the context. Explicitly state if the context lacks the information.>
+Reason: <Provide a detailed, multi-sentence elaboration on WHY the answer is what it is, citing rules, conditions, or lack of information FROM THE CONTEXT. Explain the supporting details thoroughly.>
+
+Context from Travel Instructions:
+---
+${contextText}
+---
+
+User's Question: ${message}
+
+Answer:`; // Ensure the model starts generating the detailed answer here, following the format precisely.
+
+    // 3. Call the Gemini generative model
+    console.log(`Generating response for: "${message}" with ${contextChunks.length} context chunks.`);
+    // Note: No explicit generationConfig is passed here, so it uses model defaults.
+    // Found maxOutputTokens in src/api/gemini.js defaults to 2048, which is sufficient.
+    const result = await generativeModel.generateContent(prompt); 
+    const response = result.response;
+    const replyText = response.text();
+
+    console.log(`Generated reply: "${replyText.substring(0, 100)}..."`);
+
+    // Detect and format potential tables
+    const tableDetectionResult = detectAndFormatTable(replyText);
+
+    // Construct the response payload
+    let responsePayload = {
+      reply: replyText, // Always include the original text
+      sources: sources,
+      displayAsTable: false,
+      tableData: null,
+    };
+
+    if (tableDetectionResult.isTable) {
+      responsePayload.displayAsTable = true;
+      responsePayload.tableData = tableDetectionResult.tableData;
+      // Optionally, you could modify responsePayload.reply here if needed,
+      // e.g., remove the table part from the main text reply.
+      // For now, we keep the full original reply.
+      console.log("Tabular data detected and formatted.");
+    }
+
+    // Send the potentially modified payload back to the frontend
+    res.json(responsePayload);
+
+  } catch (error) {
+    console.error('Error handling /api/v2/chat request:', error);
+    // Check if the RAG service itself failed initialization or retrieval
+    if (error.message.includes('RAG service not initialized')) {
+       res.status(503).json({ error: 'Service Unavailable', message: 'Chatbot context is still initializing. Please try again shortly.' });
+    } else {
+       res.status(500).json({ error: 'Internal Server Error', message: 'Failed to generate chat response.' });
+    }
+  }
+});
+
 
 /* Proxy setup for the backend server with error handling that enables direct fallback */
 app.use('/api', createProxyMiddleware({
@@ -253,13 +389,7 @@ app.all('/api/travel-instructions*', async (req, res) => {
 // Serve the main landing page
 app.use(express.static(path.join(__dirname, '../public_html')));
 
-// Serve the React app under /chatbot path
-app.use('/chatbot', express.static(path.join(__dirname, '../dist')));
-
-// Handle React app routes
-app.get('/chatbot/*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../dist/index.html'));
-});
+// Removed chatbot serving (static files and route handler)
 
 
 // Handle 404s
@@ -267,9 +397,25 @@ app.use((req, res) => {
     res.status(404).sendFile(path.join(__dirname, '../public_html/index.html'));
 });
 
-//app.listen(PORT, () => {
-//    console.log(`Server running on port ${PORT}`);
-//});
+// Export the app instance for testing or programmatic use
+export default app;
+
+// Only start the server if this script is run directly (not imported as a module for testing)
+// if (process.env.NODE_ENV !== 'test') {
+// The check below is slightly more robust if NODE_ENV isn't reliably set during testing phases
+// Determine if the module is the main module being run
+const isMainModule = import.meta.url === `file://${process.argv[1]}`;
+// A common pattern is also to check NODE_ENV, which Vitest usually sets. Let's use that for simplicity with Vitest.
+if (process.env.NODE_ENV !== 'test') {
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
-});
+
+    // Initialize the RAG service asynchronously after server starts
+    console.log('Triggering RAG service initialization...');
+    initializeRagService().catch(err => {
+        console.error("Background RAG service initialization failed:", err);
+        // Keep the server running, but the RAG features might be unavailable.
+        // Monitor logs for recurring failures.
+    });
+    });
+}

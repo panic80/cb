@@ -1,4 +1,4 @@
-import chatLogger from '../services/logger.js';
+// import chatLogger from '../services/logger.js'; // Removed unused import
 
 export const loggingMiddleware = (req, res, next) => {
     // Store the original send method

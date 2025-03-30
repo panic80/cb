@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ESNext", // Use latest ECMAScript features
+    "useDefineForClassFields": true,
+    "lib": ["DOM", "DOM.Iterable", "ESNext"], // Include standard browser and ESNext libraries
+    "allowJs": true, // Allow JavaScript files to be compiled
+    "skipLibCheck": true, // Skip type checking of declaration files
+    "esModuleInterop": true, // Enables emit interoperability between CommonJS and ES Modules
+    "allowSyntheticDefaultImports": true, // Allow default imports from modules with no default export
+    "strict": true, // Enable all strict type-checking options
+    "forceConsistentCasingInFileNames": true, // Disallow inconsistently-cased references to the same file.
+    "module": "ESNext", // Specify module code generation
+    "moduleResolution": "Node", // Use Node.js module resolution strategy
+    "resolveJsonModule": true, // Include modules imported with .json extension
+    "isolatedModules": true, // Transpile each file as a separate module (required by Vite)
+    "noEmit": true, // Do not emit output files (Vite handles this)
+    "jsx": "react-jsx", // Use React 17+ new JSX transform
+    "baseUrl": ".", // Base directory to resolve non-relative module names
+    "paths": {
+      "@/*": ["src/*"] // Example path alias - adjust if needed
+    }
+  },
+  "include": ["src", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "vitest.config.js", "eslint.config.js"], // Files to include in compilation
+  "exclude": ["node_modules", "dist", "build", "coverage"], // Files/directories to exclude
+  "references": [{ "path": "./tsconfig.node.json" }] // Optional: Reference for node-specific config (e.g., for Vite config) - Create if needed
+}
