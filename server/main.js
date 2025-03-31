@@ -269,7 +269,10 @@ Answer:`; // Ensure the model starts generating the detailed answer here, follow
 
 
 /* Proxy setup for the backend server with error handling that enables direct fallback */
-app.use('/api', createProxyMiddleware({
+// Only apply the API proxy if NOT in development mode
+if (!isDevelopment) {
+  console.log('Applying API proxy middleware (Non-Development mode).');
+  app.use('/api', createProxyMiddleware({
     target: 'http://localhost:3001',
     changeOrigin: true,
     logLevel: 'debug',
@@ -285,14 +288,17 @@ app.use('/api', createProxyMiddleware({
             console.log(`Proxy response from: ${req.method} ${req.path}, status: ${proxyRes.statusCode}`);
         }
     },
-    onError: (err, req, res, next) => {
+    // Note: The 4th argument from http-proxy's 'error' event is 'target', not 'next'.
+    onError: (err, req, res) => {
         console.error('Proxy error:', err);
         
         // If this is a travel instructions request, trigger the direct fallback
         if (req.path === '/api/travel-instructions') {
             console.log('Proxy server unreachable for travel instructions, will use direct fallback');
             res.locals.proxyFailed = true;
-            next(); // Continue to the fallback handler
+            // Do NOT call next() here - it's not the Express next function.
+            // Do NOT end the response here; allow middleware to potentially call the real next()
+            // to reach the fallback handler defined below.
         } else {
             // For other API endpoints, return a standard error
             res.status(503).json({
@@ -302,7 +308,10 @@ app.use('/api', createProxyMiddleware({
             });
         }
     }
-}));
+  }));
+} else {
+  console.log('Skipping API proxy middleware (Development mode).');
+}
 
 // Fallback handler if proxy fails for travel instructions - makes direct API call
 app.all('/api/travel-instructions*', async (req, res) => {

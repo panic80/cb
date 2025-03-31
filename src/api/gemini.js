@@ -1,5 +1,4 @@
 // src/api/gemini.js
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { parseApiResponse } from '../utils/chatUtils.js'; // Assuming this utility exists and works as mocked in tests
 
 // Constants (potentially useful for retry logic, though not fully implemented here)
@@ -11,11 +10,6 @@ import { parseApiResponse } from '../utils/chatUtils.js'; // Assuming this utili
  * @param {string} apiKey - The API key to validate.
  * @returns {boolean} True if the key format is valid, false otherwise.
  */
-export const validateApiKey = (apiKey) => {
-  // Basic check: Starts with "AIza" and has a reasonable length (e.g., > 30 chars)
-  // This is a basic client-side check; server-side validation is more robust.
-  return typeof apiKey === "string" && apiKey.startsWith("AIza") && apiKey.length > 30;
-};
 
 /**
  * Creates the prompt string for the Gemini API call.
@@ -90,53 +84,6 @@ const extractModelName = (modelString) => {
  * @returns {Promise<object>} The parsed API response.
  * @throws {Error} If the API call fails or the response is invalid.
  */
-export const callGeminiViaSDK = async (
-  question,
-  isSimplified,
-  model,
-  instructions
-) => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!validateApiKey(apiKey)) {
-    throw new Error("Invalid or missing Gemini API Key for SDK call.");
-  }
-
-  try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const generationConfig = getGenerationConfig();
-    const prompt = createPrompt(question, isSimplified, instructions);
-    const generativeModel = genAI.getGenerativeModel({
-      model: extractModelName(model), // Extract base model name
-    });
-
-    console.log("Calling Gemini SDK with model:", extractModelName(model));
-    const result = await generativeModel.generateContent(prompt, generationConfig);
-    const response = result.response; // Access the response property
-
-    if (!response || typeof response.text !== 'function') {
-       console.error("Invalid SDK response structure:", response);
-       throw new Error("Invalid response format from Gemini SDK");
-    }
-
-    const text = response.text(); // Call the text() function to get the string
-    if (!text) {
-        console.warn("Empty text response from Gemini SDK");
-        // Decide whether to throw or return empty structure - let's throw for now
-        throw new Error("Empty response text from Gemini SDK");
-    }
-    console.log("Raw SDK response text:", text);
-
-
-    return parseApiResponse(text, isSimplified);
-  } catch (error) {
-    console.error("Error calling Gemini via SDK:", error);
-    // Re-throw a more generic error or handle specific error types
-     if (error.message.includes('API key not valid')) {
-        throw new Error("Gemini API key is not valid. Please check your configuration.");
-     }
-    throw new Error(`Gemini SDK request failed: ${error.message}`);
-  }
-};
 
 /**
  * Calls the Gemini API via the backend proxy.
@@ -152,15 +99,10 @@ export const callGeminiViaProxy = async (
   question,
   isSimplified,
   model,
-  instructions,
-  secureMode = false // Default to dev mode (key in URL)
+  instructions
 ) => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!validateApiKey(apiKey)) {
-    throw new Error("Invalid or missing Gemini API Key for Proxy call.");
-  }
-
-  const proxyUrl = "/api/gemini/generateContent";
+  // API Key is no longer handled client-side. Proxy handles authentication.
+  const proxyUrl = "/api/chat"; // Use the unified backend proxy endpoint
   const generationConfig = getGenerationConfig();
   const prompt = createPrompt(question, isSimplified, instructions);
 
@@ -176,14 +118,8 @@ export const callGeminiViaProxy = async (
     }),
   };
 
-  let targetUrl = proxyUrl;
-  if (secureMode) {
-    // Production/Secure mode: Key in header
-    requestOptions.headers["X-API-KEY"] = apiKey;
-  } else {
-    // Development mode: Key in query param (assuming proxy expects it)
-    targetUrl = `${proxyUrl}?key=${encodeURIComponent(apiKey)}`;
-  }
+  // Removed secureMode and client-side API key handling.
+  // The proxy at /api/chat is responsible for adding the key server-side.
 
   // --- Retry Logic Placeholder ---
   // let attempt = 0;
@@ -194,8 +130,8 @@ export const callGeminiViaProxy = async (
   // --- End Retry Logic Placeholder ---
 
   try {
-    console.log(`Calling Gemini via Proxy (${secureMode ? 'Secure' : 'Dev'}): ${targetUrl}`);
-    const response = await fetch(targetUrl, requestOptions);
+    console.log(`Calling Gemini via Proxy: ${proxyUrl}`);
+    const response = await fetch(proxyUrl, requestOptions);
 
     if (!response.ok) {
       // Handle specific HTTP errors
@@ -273,56 +209,19 @@ export const sendToGemini = async (
     throw new Error("Travel instructions not loaded"); // Match test error message
   }
 
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  const apiKeyValid = validateApiKey(apiKey);
-  console.log("sendToGemini: API Key validation result:", apiKeyValid);
-  if (!apiKeyValid) {
-    console.error("sendToGemini: ERROR - Invalid or missing VITE_GEMINI_API_KEY.");
-     // Use fallback here instead of throwing? Tests expect throw.
-    throw new Error("Invalid or missing Gemini API Key.");
-  }
+  // API Key validation removed, proxy handles authentication.
 
-  const isDevelopment = import.meta.env.DEV;
-
+  // Always call via the proxy, regardless of environment.
   try {
-    if (isDevelopment) {
-      // In development, try the proxy first (non-secure mode)
-      console.log("Development mode: Trying Gemini via Proxy...");
-      try {
-        return await callGeminiViaProxy(
-          question,
-          isSimplified,
-          model,
-          instructions,
-          false // secureMode = false for dev proxy
-        );
-      } catch (proxyError) {
-        console.warn(
-          `Proxy call failed: ${proxyError.message}. Falling back to SDK.`
-        );
-        // Fallback to SDK if proxy fails
-        return await callGeminiViaSDK(
-          question,
-          isSimplified,
-          model,
-          instructions
-        );
-      }
-    } else {
-      // In production, use the SDK directly
-      console.log("Production mode: Calling Gemini via SDK...");
-      return await callGeminiViaSDK(
-        question,
-        isSimplified,
-        model,
-        instructions
-      );
-       // OR If a secure production proxy is preferred:
-       // console.log("Production mode: Calling Gemini via Secure Proxy...");
-       // return await callGeminiViaProxy(question, isSimplified, model, instructions, true);
-    }
+     console.log("Routing Gemini request via proxy /api/chat...");
+     return await callGeminiViaProxy(
+       question,
+       isSimplified,
+       model,
+       instructions
+     );
   } catch (error) {
-    console.error(`sendToGemini failed after trying ${isDevelopment ? 'Proxy and SDK' : 'SDK'}:`, error);
+    console.error(`sendToGemini failed while calling via Proxy:`, error);
     // Optional: Return fallback content on final failure? Tests don't explicitly cover this, they expect throws.
     // return getFallbackResponse(isSimplified);
     throw error; // Re-throw the error from the failed attempt(s)

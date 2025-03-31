@@ -47,7 +47,7 @@ module.exports = {
   // Deployment Configuration
   deploy: {
     production: {
-      user: 'root',
+      user: 'appuser',
       host: '46.202.177.230',
       path: '/var/www/32cbgg8.com',
       repo: 'git@github.com:yourusername/pb-cline.git',

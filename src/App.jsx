@@ -207,7 +207,7 @@ const App = () => {
         </Suspense>
         {/* Render Chatbot Widget globally */}
         <Suspense fallback={null}> {/* No specific fallback needed for the widget itself */}
-           <ChatbotWidget />
+           <ChatbotWidget theme={state.theme} />
         </Suspense>
       </div>
     </Router>

@@ -5,6 +5,7 @@ import {
   DocumentTextIcon,
   UserGroupIcon,
   WrenchScrewdriverIcon,
+  ArrowTopRightOnSquareIcon, // Added for external link indication
 } from "@heroicons/react/24/solid";
 import { Link } from "react-router-dom";
 
@@ -55,8 +56,12 @@ export default function LandingCard({
       </div>
       {/* Text Section */}
       <div className="ml-4">
-        <h3 className="text-lg md:text-xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+        <h3 className="flex items-center text-lg md:text-xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
           {title}
+          {/* Add external link icon if href is present */}
+          {href && (
+            <ArrowTopRightOnSquareIcon className="w-4 h-4 ml-1.5 text-[var(--text-secondary)] group-hover:text-[var(--primary)] transition-colors duration-300" />
+          )}
         </h3>
         <p className="text-sm md:text-base text-[var(--text)] opacity-80">
           {description}

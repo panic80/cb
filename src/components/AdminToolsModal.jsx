@@ -42,7 +42,7 @@ const SubModal = ({
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold">{title}</h3>
             <button
-              className="p-2 hover:bg-[var(--background)] rounded-full transition-colors cursor-pointer"
+              className="p-2 hover:bg-[var(--background-secondary)] rounded-full transition-colors cursor-pointer"
               aria-label="Close submenu"
               onClick={(e) => {
                 e.stopPropagation(); // Prevent closing main modal
@@ -265,7 +265,7 @@ export default function AdminToolsModal({ show, onClose }) {
                         href="https://scribehow.com/embed-preview/Boots_Reimbursement_Submission_in_SCIP__oWwTYHb2QUeKqvtYJ3DMkg?as=video"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2"
+                        className="block cursor-pointer hover:bg-[var(--background-secondary)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2"
                       >
                         How to Submit Boot Claims
                       </a>
@@ -275,7 +275,7 @@ export default function AdminToolsModal({ show, onClose }) {
                         href="https://scribehow.com/embed-preview/Initiating_TD_Claim_in_SCIP__GGXSDQBnSNq6H5GX_cZUuQ?as=video"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2"
+                        className="block cursor-pointer hover:bg-[var(--background-secondary)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2"
                       >
                         How to Submit TD Claims
                       </a>
@@ -285,7 +285,7 @@ export default function AdminToolsModal({ show, onClose }) {
                         href="https://scribehow.com/embed-preview/Finalizing_a_TD_Claim_in_SCIP__w_JFn6AuTA--OpCHeFqYxA?as=video"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2"
+                        className="block cursor-pointer hover:bg-[var(--background-secondary)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2"
                       >
                         How to Finalize TD Claims
                       </a>
@@ -350,7 +350,7 @@ export default function AdminToolsModal({ show, onClose }) {
                         href="https://scribehow.com/embed-preview/SCIP_Mobile_Onboarding__qa62L6ezQi2nTzcp3nqq1Q?as=video"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2"
+                        className="block cursor-pointer hover:bg-[var(--background-secondary)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2"
                       >
                         SCIP Mobile Onboarding Guide
                       </a>
@@ -358,7 +358,7 @@ export default function AdminToolsModal({ show, onClose }) {
                     <li className="py-2">
                       <a
                         href="/scip-desktop"
-                        className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2"
+                        className="block cursor-pointer hover:bg-[var(--background-secondary)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2"
                       >
                         SCIP Desktop Onboarding Guide (Coming Soon)
                       </a>

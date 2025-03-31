@@ -175,7 +175,7 @@ export default function OPIPage({ theme, onThemeChange }) {
                         id="unit-select"
                         value={selectedUnit}
                         onChange={(e) => setSelectedUnit(e.target.value)}
-                        className="w-full p-3 bg-[var(--input-bg)] border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-secondary)] focus:ring-[var(--primary-color)] text-[var(--text-primary)] appearance-none pr-10" // Adjusted padding for arrow
+                        className="w-full p-3 bg-[var(--input-bg)] border border-[var(--border-color)] rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-secondary)] focus:ring-[var(--primary)] text-[var(--text-primary)] appearance-none pr-10" // Adjusted padding for arrow
                       >
                         <option value="">-- Select a Unit --</option>
                         {allUnits.map((unit) => (
@@ -218,7 +218,7 @@ export default function OPIPage({ theme, onThemeChange }) {
                             title="Financial Services Cell (FSC)"
                           />
                         ) : (
-                          <div className="text-[var(--text-secondary)] p-4 bg-[var(--bg-primary)] rounded-lg border border-dashed border-[var(--warning-color)]">
+                          <div className="text-[var(--text-secondary)] p-4 bg-[var(--bg-primary)] rounded-lg border border-dashed border-[var(--border)]">
                             {" "}
                             {/* Warning style */}
                             <p className="font-medium">
@@ -255,7 +255,7 @@ export default function OPIPage({ theme, onThemeChange }) {
                         viewBox="0 0 24 24"
                         strokeWidth={1.5}
                         stroke="currentColor"
-                        className="w-10 h-10 mx-auto text-[var(--text-tertiary)] mb-3"
+                        className="w-10 h-10 mx-auto text-[var(--text-secondary)] mb-3"
                       >
                         <path
                           strokeLinecap="round"
@@ -266,7 +266,7 @@ export default function OPIPage({ theme, onThemeChange }) {
                       <p className="text-[var(--text-secondary)] font-medium">
                         Please select your unit above.
                       </p>
-                      <p className="text-sm text-[var(--text-tertiary)]">
+                      <p className="text-sm text-[var(--text-secondary)]">
                         Your specific FSC and FMC contacts will be displayed
                         here.
                       </p>
@@ -284,11 +284,11 @@ export default function OPIPage({ theme, onThemeChange }) {
                     {fscContacts.sections.map((section, index) => (
                       <div
                         key={`fsc-sec-${index}`}
-                        className="bg-[var(--bg-primary)] p-4 sm:p-6 rounded-lg border border-[var(--border-color)]"
+                        className="card-hover glass p-4 sm:p-6 rounded-lg border border-[var(--border-color)]"
                       >
                         {" "}
                         {/* Added border */}
-                        <h3 className="font-semibold mb-4 text-lg sm:text-xl text-[var(--primary-color)] border-b border-[var(--border-color)] pb-2">{`Section ${index + 1}`}</h3>{" "}
+                        <h3 className="font-semibold mb-4 text-lg sm:text-xl text-[var(--primary)] border-b border-[var(--border-color)] pb-2">{`Section ${index + 1}`}</h3>{" "}
                         {/* Enhanced title */}
                         <ContactCard
                           name={section.name}

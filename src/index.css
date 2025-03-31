@@ -128,13 +128,14 @@
   --primary: #2563eb;
   --primary-hover: #1d4ed8;
   --background: #f8fafc;
+  --background-secondary: #f1f5f9; /* slate-100 */
   --text: #0f172a;
   --card: #ffffff;
   --border: #e2e8f0;
   --sidebar-width: 200px;
   --sidebar-collapsed-width: 60px;
   --toggle-size: 32px;
-  --glass-border: #cbd5e1; /* Use slate-300 for better light theme glass border visibility */
+  --glass-border: rgba(203, 213, 225, 0.5); /* Updated light theme glass border (slate-300 with 0.5 opacity) */
 }
 
 [data-theme="dark"] {

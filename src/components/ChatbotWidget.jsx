@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, Component } from 'react';
 import axios from 'axios'; // Use axios as it's available
 import ReactMarkdown from 'react-markdown';
-
+import rehypeSanitize from 'rehype-sanitize';
 // SVG Icons (Simple inline SVGs)
 const ChatIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-6 h-6">
@@ -33,13 +33,18 @@ const renderTable = (tableData) => {
                 </tr>
             </thead>
             <tbody>
-                {rows.map((row, rowIndex) => (
-                    <tr key={rowIndex}>
-                        {row.map((cell, cellIndex) => (
-                            <td key={cellIndex} className="border border-gray-300 p-1.5 text-left">{cell}</td>
-                        ))}
-                    </tr>
-                ))}
+                {rows.map((row, rowIndex) => {
+                    return (
+                        <tr key={rowIndex}>
+                            {row.map((cell, cellIndex) => {
+                                {/* TODO: Sanitize 'cell' content if it comes directly from API to prevent XSS */}
+                                return (
+                                    <td key={cellIndex} className="border border-gray-300 p-1.5 text-left">{cell}</td>
+                                );
+                            })}
+                        </tr>
+                    );
+                })}
             </tbody>
         </table>
     );
@@ -68,7 +73,8 @@ const formatBotMessage = (text) => {
     // Use ReactMarkdown for consistent markdown rendering (links, lists, etc.)
     // Apply Tailwind prose styles for better markdown formatting if needed, or basic styles
     // Apply styling to a wrapper div instead of directly to ReactMarkdown
-    return <div className="prose prose-sm max-w-none"><ReactMarkdown>{text}</ReactMarkdown></div>;
+    // Apply rehype-sanitize to mitigate XSS risks from markdown content
+    return <div className="prose prose-sm max-w-none"><ReactMarkdown rehypePlugins={[rehypeSanitize]}>{text}</ReactMarkdown></div>;
 };
 
 // Error Boundary Component
@@ -100,7 +106,7 @@ class ChatErrorBoundary extends Component {
     }
 }
 
-function ChatbotWidget() {
+function ChatbotWidget({ theme = 'light' }) { // Default to light if prop not provided
     const initialBotMessage = { sender: 'bot', text: 'Hello! How can I help you with the travel instructions today?', sources: [], isError: false };
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState([initialBotMessage]);
@@ -279,15 +285,15 @@ const toggleChat = () => { // Original, logging removed
     return (
         <ChatErrorBoundary>
             {isOpen ? (
-                <div ref={chatWindowRef} className="fixed bottom-5 right-5 z-50 max-w-md md:max-w-lg h-[70vh] md:h-[80vh] bg-white rounded-lg shadow-xl flex flex-col overflow-hidden border border-gray-300">
+                <div ref={chatWindowRef} className={`fixed bottom-5 right-5 z-50 max-w-md md:max-w-lg h-[70vh] md:h-[80vh] rounded-lg shadow-xl flex flex-col overflow-hidden border ${theme === 'dark' ? 'bg-gray-800 text-gray-100 border-gray-600' : 'bg-white text-gray-900 border-gray-300'}`}>
                     {/* Header */}
-                    <div className="bg-blue-600 text-white p-3 text-base font-bold flex justify-between items-center flex-shrink-0">
+                    <div className={`p-3 text-base font-bold flex justify-between items-center flex-shrink-0 ${theme === 'dark' ? 'bg-gray-900 text-gray-100' : 'bg-blue-500 text-white'}`}>
                         <span>Travel Assistant</span>
                         <div className="flex items-center space-x-2">
                              {/* Clear Chat Button */}
                              <button
                                 onClick={handleClearChat}
-                                className="bg-transparent border-none text-white text-xs p-1 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50"
+                                className={`bg-transparent border-none text-xs p-1 rounded focus:outline-none focus:ring-2 focus:ring-opacity-50 ${theme === 'dark' ? 'text-gray-200 hover:bg-gray-700 focus:ring-gray-400' : 'text-blue-100 hover:bg-blue-400 focus:ring-blue-300'}`}
                                 aria-label="Clear Chat History"
                                 title="Clear Chat"
                                 disabled={isLoading || messages.length <= 1} // Disable if loading or only initial message
@@ -297,7 +303,7 @@ const toggleChat = () => { // Original, logging removed
                             {/* Close Button */}
                             <button
                                 onClick={toggleChat}
-                                className="bg-transparent border-none text-white p-1 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50"
+                                className={`bg-transparent border-none p-1 rounded focus:outline-none focus:ring-2 focus:ring-opacity-50 ${theme === 'dark' ? 'text-gray-200 hover:bg-gray-700 focus:ring-gray-400' : 'text-blue-100 hover:bg-blue-400 focus:ring-blue-300'}`}
                                 aria-label="Close Chat"
                             >
                                 <CloseIcon />
@@ -306,16 +312,16 @@ const toggleChat = () => { // Original, logging removed
                     </div>
 
                     {/* Message List */}
-                    <div className="flex-grow p-3 overflow-y-auto border-b border-gray-200 space-y-3 bg-gray-50">
+                    <div className={`flex-grow p-3 overflow-y-auto border-b space-y-3 ${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-300'}`}>
                         {messages.map((msg, index) => (
                             <div
                                 key={index}
                                 className={`p-2 px-3 rounded-2xl max-w-[85%] break-words flex flex-col ${
                                     msg.sender === 'user'
-                                        ? 'bg-blue-500 text-white self-end ml-auto'
-                                        : msg.isError // Check for error flag first
-                                        ? 'bg-red-100 text-red-800 border border-red-200 self-start mr-auto' // Distinct error style
-                                        : 'bg-gray-200 text-gray-800 self-start mr-auto' // Standard bot style
+                                        ? `${theme === 'dark' ? 'bg-blue-700' : 'bg-blue-500'} text-white self-end ml-auto`
+                                        : msg.isError
+                                        ? `${theme === 'dark' ? 'bg-red-900 bg-opacity-50 text-red-200 border border-red-700' : 'bg-red-100 text-red-700 border border-red-300'} self-start mr-auto`
+                                        : `${theme === 'dark' ? 'bg-gray-600 text-gray-100' : 'bg-gray-200 text-gray-800'} self-start mr-auto`
                                 }`}
                             >
                                 {/* Render message content: Table or Formatted Text */}
@@ -323,7 +329,7 @@ const toggleChat = () => { // Original, logging removed
                                     {msg.sender === 'user' ? (
                                         msg.text // Plain text for user
                                     ) : msg.displayAsTable && msg.tableData ? (
-                                        renderTable(msg.tableData) // Render table
+                                        parseTable(msg.tableData) // Render table
                                     ) : (
                                         formatBotMessage(msg.text) // Formatted/Markdown text for bot/error
                                     )}
@@ -331,16 +337,17 @@ const toggleChat = () => { // Original, logging removed
 
                                 {/* Render sources if available for non-error bot messages */}
                                 {msg.sender === 'bot' && !msg.isError && msg.sources && msg.sources.length > 0 && (
-                                    <div className="mt-2 pt-2 border-t border-gray-300 border-opacity-50">
-                                        <strong className="text-xs font-semibold text-gray-600">Sources:</strong>
+                                    <div className={`mt-2 pt-2 border-t border-opacity-50 ${theme === 'dark' ? 'border-gray-500' : 'border-gray-300'}`}>
+                                        <strong className={`text-xs font-semibold ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>Sources:</strong>
                                         <ul className="mt-1 pl-4 text-xs list-disc space-y-1">
                                             {msg.sources.map((source, srcIndex) => (
                                                 <li key={srcIndex}>
                                                     <a
+                                                        // TODO: Sanitize 'source.url' to prevent javascript: XSS attacks
                                                         href={source.url}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
-                                                        className="text-blue-700 hover:underline break-all"
+                                                        className={`${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'} hover:underline break-all`}
                                                         title={source.url}
                                                     >
                                                         {source.title || new URL(source.url).hostname} {/* Display title or hostname */}
@@ -353,7 +360,7 @@ const toggleChat = () => { // Original, logging removed
                             </div>
                         ))}
                         {isLoading && (
-                            <div className="p-2 px-3 rounded-2xl max-w-[85%] italic text-gray-500 self-start mr-auto bg-gray-100">
+                            <div className={`p-2 px-3 rounded-2xl max-w-[85%] italic self-start mr-auto ${theme === 'dark' ? 'text-gray-400 bg-gray-600' : 'text-gray-500 bg-gray-200'}`}>
                                 Thinking...
                             </div>
                         )}
@@ -362,12 +369,12 @@ const toggleChat = () => { // Original, logging removed
                     </div>
 
                     {/* Suggested Questions Area */}
-                    <div className="p-2 border-t border-gray-200 flex flex-wrap gap-2 flex-shrink-0 bg-white">
+                    <div className={`p-2 border-t flex flex-wrap gap-2 flex-shrink-0 ${theme === 'dark' ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-white'}`}>
                         {suggestedQuestions.map((q, index) => (
                             <button
                                 key={index}
                                 onClick={() => handleSuggestedQuestionClick(q)}
-                                className="bg-gray-100 border border-gray-300 rounded-full py-1 px-3 text-xs cursor-pointer text-gray-700 hover:bg-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                                className={`border rounded-full py-1 px-3 text-xs cursor-pointer focus:outline-none focus:ring-1 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed ${theme === 'dark' ? 'bg-gray-600 border-gray-500 text-gray-200 hover:bg-gray-500 focus:ring-blue-400' : 'bg-gray-100 border-gray-300 text-gray-700 hover:bg-gray-200 focus:ring-blue-500'}`}
                                 disabled={isLoading}
                             >
                                 {q}
@@ -376,20 +383,20 @@ const toggleChat = () => { // Original, logging removed
                     </div>
 
                     {/* Input Area */}
-                    <form onSubmit={handleSendMessage} className="flex p-3 border-t border-gray-200 items-center flex-shrink-0 bg-white">
+                    <form onSubmit={handleSendMessage} className={`flex p-3 border-t items-center flex-shrink-0 ${theme === 'dark' ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-white'}`}>
                         <input
                             ref={inputRef}
                             type="text"
                             value={inputValue}
                             onChange={handleInputChange}
-                            className="flex-grow p-2 border border-gray-300 rounded-md mr-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                            className={`flex-grow p-2 border rounded-md mr-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${theme === 'dark' ? 'border-gray-600 disabled:bg-gray-600 bg-gray-700 text-gray-100 placeholder-gray-400' : 'border-gray-300 disabled:bg-gray-100 bg-white text-gray-900 placeholder-gray-500'}`}
                             placeholder="Ask a question..."
                             aria-label="Chat input"
                             disabled={isLoading}
                         />
                         <button
                             type="submit"
-                            className="p-2 px-4 bg-green-500 text-white border-none rounded-md cursor-pointer hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                            className={`p-2 px-4 text-white border-none rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:cursor-not-allowed ${theme === 'dark' ? 'bg-blue-600 hover:bg-blue-700 disabled:bg-gray-500' : 'bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400'}`}
                             disabled={isLoading || !inputValue.trim()}
                         >
                             Send
@@ -400,7 +407,7 @@ const toggleChat = () => { // Original, logging removed
                 <button
                     ref={toggleButtonRef} // Assign ref here
                     onClick={toggleChat}
-                    className="fixed bottom-5 right-5 z-50 bg-blue-600 text-white rounded-full w-14 h-14 cursor-pointer shadow-lg flex items-center justify-center hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                    className={`fixed bottom-5 right-5 z-50 text-white rounded-full w-14 h-14 cursor-pointer shadow-lg flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-offset-2 ${theme === 'dark' ? 'bg-blue-700 hover:bg-blue-800 focus:ring-blue-400' : 'bg-blue-500 hover:bg-blue-600 focus:ring-blue-500'}`}
                     aria-label="Open Chat"
                 >
                     <ChatIcon />

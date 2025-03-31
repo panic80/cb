@@ -14,32 +14,7 @@ import AboutModal from "../components/AboutModal"; // Import the About modal com
 import AdminToolsModal from "../components/AdminToolsModal"; // Import the new modal component
 import LandingCard from "../components/LandingCard"; // Import the new LandingCard component
 import PrivacyModal from "../components/PrivacyModal"; // Import the Privacy modal component
-const useIntersectionObserver = (options = {}) => {
-  const [isVisible, setIsVisible] = useState(false);
-  const elementRef = useRef(null);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        setIsVisible(entry.isIntersecting);
-      },
-      { threshold: 0.1, ...options }
-    );
-
-    const currentElement = elementRef.current;
-    if (currentElement) {
-      observer.observe(currentElement);
-    }
-
-    return () => {
-      if (currentElement) {
-        observer.unobserve(currentElement);
-      }
-    };
-  }, [options]);
-
-  return [elementRef, isVisible];
-};
+// Removed unused useIntersectionObserver hook
 
 export default function LandingPage({ theme, onThemeChange }) {
   // Removed useEffect that forced page reload on navigation
@@ -73,8 +48,7 @@ export default function LandingPage({ theme, onThemeChange }) {
     }
   };
 
-  // Intersection observers for animations
-  useIntersectionObserver(); // Just calling the hook since we don't need the ref
+  // Removed unused Intersection observer call
 
   // Update document when theme changes
   useEffect(() => {
@@ -100,7 +74,7 @@ export default function LandingPage({ theme, onThemeChange }) {
   };
 
   return (
-    <div className="root-container">
+    <div className="root-container flex flex-col min-h-screen">
       {/* Theme Toggle Button */}
       <div className="fixed top-4 right-4 z-50">
         <button
@@ -121,9 +95,9 @@ export default function LandingPage({ theme, onThemeChange }) {
       </div>
 
       {/* Desktop Layout - Only visible at MD+ screens */}
+      {/* Apply flex-grow here */}
       <div
-        className="hidden md:flex flex-col min-h-screen bg-[var(--background)] text-[var(--text)]"
-        style={{ minHeight: "calc(var(--vh, 1vh) * 100)" }}
+        className="hidden md:flex flex-col flex-grow bg-[var(--background)] text-[var(--text)]"
       >
         <div className="flex-grow flex items-center justify-center hero-gradient">
           {/* Decorative Background Elements */}
@@ -147,9 +121,10 @@ export default function LandingPage({ theme, onThemeChange }) {
             />
           </div>
 
-          <div className="container mx-auto px-4 flex items-center h-full">
+          <div className="container mx-auto px-4 flex items-start h-full">
             {/* Left Side - Logo and Text */}
-            <div className="w-1/2 flex flex-col items-start justify-center pr-8 animate-fade-up">
+            {/* Adjusted width to w-2/5 for text block */}
+            <div className="w-2/5 flex flex-col items-start justify-center pr-8 animate-fade-up">
               <div className="flex items-center mb-6">
                 <img
                   src="https://www.canada.ca/content/dam/army-armee/migration/assets/army_internet/images/badges/badge-32-canadian-brigade-group.jpg"
@@ -161,26 +136,27 @@ export default function LandingPage({ theme, onThemeChange }) {
                   }}
                 />
                 <div className="ml-6">
+                  {/* Updated Headline */}
                   <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold gradient-text">
-                    32 CBG G8
+                    32 CBG G8 Hub
                   </h1>
-                  <p className="text-xl md:text-2xl text-[var(--text-secondary)] mt-2">
-                    Administration Hub
+                  {/* Updated Subtitle */}
+                  {/* Moved Description Here */}
+                  <p className="text-lg md:text-xl max-w-xl text-[var(--text)] opacity-90 leading-relaxed mt-6">
+                    Your digital gateway for administrative resources, claims, and policy
+                    information.
                   </p>
                 </div>
               </div>
-
-              <p className="text-lg md:text-xl max-w-xl text-[var(--text)] opacity-90 leading-relaxed glass p-5 rounded-xl">
-                Your comprehensive digital gateway to administrative resources,
-                claims processing, and policy information.
-              </p>
+              {/* Description paragraph moved up */}
             </div>
 
             {/* Center Divider */}
             <div className="h-3/4 w-px bg-gradient-to-b from-transparent via-[var(--border)] to-transparent mx-4"></div>
 
             {/* Right Side - Navigation Cards */}
-            <div className="w-1/2 flex flex-col justify-center pl-8">
+            {/* Adjusted width to w-3/5 for card block */}
+            <div className="w-3/5 flex flex-col pl-8">
               {/* Replaced with LandingCard component calls */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
                 {/* Removed Policy Assistant LandingCard */}
@@ -210,67 +186,17 @@ export default function LandingPage({ theme, onThemeChange }) {
           </div>
         </div>
 
-        {/* Desktop Footer */}
-        <footer
-          className="border-t border-[var(--border)] bg-[var(--background)] py-3 px-4"
-          role="contentinfo"
-        >
-          <div className="container mx-auto">
-            <div className="flex justify-between items-center">
-              <p className="text-xs text-[var(--text)] opacity-50">
-                &copy; {new Date().getFullYear()} G8 Admin Hub
-              </p>
-
-              <nav className="flex space-x-4" aria-label="Footer Navigation">
-                <button
-                  onClick={handleAboutClick}
-                  className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200" // Changed to button
-                >
-                  <InformationCircleIcon
-                    className="w-4 h-4 mr-1"
-                    aria-hidden="true"
-                  />
-                  <span>About</span>
-                </button>
-                <a
-                  href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
-                  className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200" // Updated style
-                >
-                  <EnvelopeIcon className="w-4 h-4 mr-1" aria-hidden="true" />
-                  <span>Contact</span>
-                </a>
-                <div
-                  onClick={() => setShowPrivacyModal(true)}
-                  onKeyDown={(e) => {
-                    // Add keyboard accessibility
-                    if (e.key === "Enter" || e.key === " ") {
-                      setShowPrivacyModal(true);
-                    }
-                  }}
-                  role="button" // Make it accessible as a button
-                  tabIndex="0" // Make it focusable
-                  className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200 cursor-pointer" // Updated style
-                >
-                  <ShieldCheckIcon
-                    className="w-4 h-4 mr-1"
-                    aria-hidden="true"
-                  />
-                  <span>Privacy</span>
-                </div>
-              </nav>
-            </div>
-          </div>
-        </footer>
       </div>
 
       {/* Mobile Layout - Only visible below MD screens */}
+      {/* Apply flex-grow here */}
       <div
-        className="md:hidden flex flex-col w-full relative pt-20"
-        style={{ minHeight: "calc(var(--vh, 1vh) * 100)" }}
+        className="md:hidden flex flex-col flex-grow w-full relative" // Removed pt-20
       >
-        <div className="flex-grow">
+        {/* Remove redundant flex-grow from inner div */}
+        <div className="pt-20"> {/* Added pt-20 here */}
           {/* Header Section with Logo */}
-          <div className="flex flex-col items-center text-center mb-8 px-4 pt-20">
+          <div className="flex flex-col items-center text-center mb-8 px-4"> {/* Removed redundant pt-20 */}
             <img
               src="https://www.canada.ca/content/dam/army-armee/migration/assets/army_internet/images/badges/badge-32-canadian-brigade-group.jpg"
               alt="32 Canadian Brigade Group Badge"
@@ -279,100 +205,49 @@ export default function LandingPage({ theme, onThemeChange }) {
                 filter: "drop-shadow(0 0 15px rgba(var(--primary-rgb), 0.3))",
               }}
             />
+            {/* Updated Headline */}
             <h1 className="text-4xl font-bold gradient-text mb-2">
-              32 CBG G8 Administration Hub
+              32 CBG G8 Hub
             </h1>
-            <p className="text-lg text-[var(--text-secondary)]">
-              Streamlined Military Administration Portal
+            {/* Updated Subtitle */}
+            {/* Moved Description Here */}
+            <p className="text-center text-[var(--text)] opacity-90 leading-relaxed mt-4 px-4">
+              Your digital gateway for administrative resources, claims, and policy
+              information.
             </p>
           </div>
 
-          {/* Description */}
-          <div className="mb-10 px-4">
-            <p className="text-center text-[var(--text)] opacity-90 leading-relaxed glass p-5 rounded-xl">
-              Your comprehensive digital gateway to administrative resources,
-              claims processing, and policy information. Designed to simplify
-              and expedite your financial administrative tasks.
-            </p>
-          </div>
-
-          {/* Replaced with LandingCard component calls */}
-          {/* Adjusted grid for better mobile layout */}
+          {/* LandingCard grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10 px-4">
             {/* Removed Policy Assistant LandingCard */}
+            {/* Descriptions updated below reflect changes planned for LandingCard.jsx */}
             <LandingCard
               href="https://apps.powerapps.com/play/e/default-325b4494-1587-40d5-bb31-8b660b7f1038/a/75e3789b-9c1d-4feb-9515-20665ab7d6e8?tenantId=325b4494-1587-40d5-bb31-8b660b7f1038&amp;hint=c63b9850-8dc3-44f2-a186-f215cf7de716&amp;sourcetime=1738854913080"
               iconName="DocumentTextIcon"
               title="SCIP Portal"
-              description="Streamlined Claims Interface for digital submission"
+              description="Submit or track claims" // Updated description
               ariaLabel="Access SCIP Platform"
             />
             <LandingCard
               to="/opi"
               iconName="UserGroupIcon"
-              title="Office of Primary Interest"
-              description="Find FSC & FMC contact information"
+              title="OPI Contact" // Kept shorter title consistent with desktop
+              description="Find FSC & FMC contacts" // Updated description
               ariaLabel="Access Contact Information"
             />
             <LandingCard
               onClick={() => setShowModal(true)}
               iconName="WrenchScrewdriverIcon"
-              title="Administrative Tools"
-              description="Access SOPs, guides, and resources"
+              title="Admin Tools" // Kept shorter title consistent with desktop
+              description="Access SOPs and resources" // Updated description
               ariaLabel="Access Administrative Tools"
             />
           </div>
+
+          {/* Description paragraph moved up */}
+          </div>
         </div>
 
-        {/* Mobile Footer */}
-        <footer className="border-t border-[var(--border)] bg-[var(--background)] py-4 px-4 mt-auto">
-          <div className="container mx-auto">
-            <div className="flex flex-col items-center">
-              <p className="text-xs text-[var(--text)] opacity-50 text-center mb-3">
-                &copy; {new Date().getFullYear()} G8 Admin Hub
-              </p>
-
-              <nav className="flex space-x-4" aria-label="Footer Navigation">
-                <button
-                  onClick={handleAboutClick}
-                  className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200" // Changed to button
-                >
-                  <InformationCircleIcon
-                    className="w-4 h-4 mr-1"
-                    aria-hidden="true"
-                  />
-                  <span>About</span>
-                </button>
-                <a
-                  href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
-                  className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200" // Updated style
-                >
-                  <EnvelopeIcon className="w-4 h-4 mr-1" aria-hidden="true" />
-                  <span>Contact</span>
-                </a>
-                <div
-                  onClick={() => setShowPrivacyModal(true)}
-                  onKeyDown={(e) => {
-                    // Add keyboard accessibility
-                    if (e.key === "Enter" || e.key === " ") {
-                      setShowPrivacyModal(true);
-                    }
-                  }}
-                  role="button" // Make it accessible as a button
-                  tabIndex="0" // Make it focusable
-                  className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200 cursor-pointer" // Updated style
-                >
-                  <ShieldCheckIcon
-                    className="w-4 h-4 mr-1"
-                    aria-hidden="true"
-                  />
-                  <span>Privacy</span>
-                </div>
-              </nav>
-            </div>
-          </div>
-        </footer>
-      </div>
 
       {/* Use the new AdminToolsModal component */}
       <AdminToolsModal show={showModal} onClose={() => setShowModal(false)} />
@@ -388,6 +263,58 @@ export default function LandingPage({ theme, onThemeChange }) {
         show={showAboutModal}
         onClose={() => setShowAboutModal(false)}
       />
+      {/* Closing div moved after modals */}
+      {/* Unified Footer */}
+      <footer
+        className="border-t border-[var(--border)] bg-[var(--background)] py-3 px-4 mt-auto"
+        role="contentinfo"
+      >
+        <div className="container mx-auto">
+          <div className="flex flex-col sm:flex-row justify-between items-center">
+            <p className="text-xs text-[var(--text)] opacity-50 text-center sm:text-left mb-2 sm:mb-0">
+              &copy; {new Date().getFullYear()} G8 Admin Hub
+            </p>
+
+            <nav className="flex space-x-4" aria-label="Footer Navigation">
+              <button
+                onClick={handleAboutClick}
+                className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200"
+              >
+                <InformationCircleIcon
+                  className="w-4 h-4 mr-1"
+                  aria-hidden="true"
+                />
+                <span>About</span>
+              </button>
+              <a
+                href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
+                className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200"
+              >
+                <EnvelopeIcon className="w-4 h-4 mr-1" aria-hidden="true" />
+                <span>Contact</span>
+              </a>
+              <div
+                onClick={() => setShowPrivacyModal(true)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    setShowPrivacyModal(true);
+                  }
+                }}
+                role="button"
+                tabIndex="0"
+                className="inline-flex items-center text-xs text-[var(--text-secondary)] hover:text-[var(--primary)] transition-colors duration-200 cursor-pointer"
+              >
+                <ShieldCheckIcon
+                  className="w-4 h-4 mr-1"
+                  aria-hidden="true"
+                />
+                <span>Privacy</span>
+              </div>
+            </nav>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
+

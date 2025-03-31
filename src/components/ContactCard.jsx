@@ -26,7 +26,7 @@ export default function ContactCard({
 
   const cardClasses = `p-4 bg-[var(--card-bg)] rounded-lg ${isLeadership ? "border-l-4 border-[var(--primary)]" : ""} transition-colors duration-200`; // Removed hover effects, kept transition for theme changes
   const nameClasses = `font-medium ${isLeadership ? "text-lg" : ""}`;
-  const emailClasses = "text-[var(--primary)] break-all text-sm sm:text-base";
+  const emailClasses = "text-[var(--primary)] whitespace-nowrap text-sm sm:text-base";
   const titleClasses = "text-sm text-[var(--text-secondary)] my-1";
   const unitsClasses = "text-xs text-[var(--text-secondary)] mt-2 italic";
 

@@ -1,47 +1,49 @@
-/* Elegant animations */
-.animate-fade-up {
-  animation: fadeUp 0.8s ease-out forwards;
-  opacity: 0;
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.6s ease-out forwards;
-  opacity: 0;
-}
-
-.animate-scale {
-  animation: scale 0.6s ease-out forwards;
-  opacity: 0;
-}
-
-@keyframes fadeUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fadeIn {
-  from {
+/* Elegant animations - Wrapped in prefers-reduced-motion */
+@media (prefers-reduced-motion: no-preference) {
+  .animate-fade-up {
+    animation: fadeUp 0.8s ease-out forwards;
     opacity: 0;
   }
-  to {
-    opacity: 1;
-  }
-}
 
-@keyframes scale {
-  from {
+  .animate-fade-in {
+    animation: fadeIn 0.6s ease-out forwards;
     opacity: 0;
-    transform: scale(0.9);
   }
-  to {
-    opacity: 1;
-    transform: scale(1);
+
+  .animate-scale {
+    animation: scale 0.6s ease-out forwards;
+    opacity: 0;
+  }
+
+  @keyframes fadeUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes scale {
+    from {
+      opacity: 0;
+      transform: scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 }
 
@@ -85,11 +87,17 @@ body {
 .card-hover:hover {
   transform: translateY(-5px);
   box-shadow: 0 20px 40px -15px rgba(var(--primary-rgb), 0.2);
+  /* Default hover background (can be same as light or a distinct dark theme hover) */
   background: linear-gradient(
     135deg,
     var(--background-secondary) 0%,
     var(--card) 100%
   );
+}
+
+/* Specific light theme hover background for higher contrast */
+html[data-theme='light'] .card-hover:hover {
+  background: #f1f5f9; /* slate-100 */
 }
 
 /* Grid cell equal height */
@@ -125,26 +133,24 @@ body {
   opacity: 1;
 }
 
-/* Floating animation for decorative elements */
-.floating {
-  animation: floating 3s ease-in-out infinite;
+/* Floating animation for decorative elements - Wrapped in prefers-reduced-motion */
+@media (prefers-reduced-motion: no-preference) {
+  .floating {
+    animation: floating 3s ease-in-out infinite;
+  }
+
+  @keyframes floating {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
 }
 
-@keyframes floating {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
-}
-
-/* Enhanced focus styles */
-.focus-ring:focus {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.3);
-}
+/* Removed redundant .focus-ring style (using global :focus-visible) */
 
 /* Gradient text effect */
 .gradient-text {
