@@ -6,11 +6,13 @@ import nodemailer from 'nodemailer';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { loggingMiddleware } from './middleware/logging.js';
-import { initializeRagService, retrieveChunks } from './services/ragService.js'; // Added RAG service import
+// Import all exported members from ragService, including admin functions
+import * as ragService from './services/ragService.js';
 import { getGenerationConfig } from '../src/api/gemini.js'; // Import config getter
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
+import fs from 'fs'; // Import fs for checking index.html existence
 
 dotenv.config(); // Ensure env vars are loaded
 
@@ -154,12 +156,88 @@ app.use((req, res, next) => {
 // Add logging middleware
 app.use(loggingMiddleware);
 
-// Removed response logging middleware for chat endpoints
+// --- Admin API Router ---
+const adminRouter = express.Router();
 
-// API routes first with enhanced error handling
-// In development and production, we proxy to the proxy server
-// If proxy server is unavailable, we'll handle locally
-const isDevelopment = process.env.NODE_ENV === 'development';
+// POST /api/admin/add-source
+adminRouter.post('/add-source', async (req, res) => {
+    const { url } = req.body;
+
+    if (!url || typeof url !== 'string' || !url.startsWith('http')) {
+        return res.status(400).json({ success: false, message: 'Invalid or missing URL in request body.' });
+    }
+
+    try {
+        const result = await ragService.addUrlSource(url);
+        if (result.success) {
+            res.status(200).json(result);
+        } else {
+            // Determine appropriate status code based on message (e.g., 409 Conflict if already exists)
+            if (result.message.includes('already exists')) {
+                 res.status(409).json(result);
+            } else {
+                 // Assume other failures might be client-related (bad URL content, etc.) or server processing issues
+                 res.status(400).json(result); // Or 500 if it's clearly a server fault during processing
+            }
+        }
+    } catch (error) {
+        console.error(`Error in /api/admin/add-source for URL ${url}:`, error);
+        res.status(500).json({ success: false, message: `Internal Server Error: ${error.message}` });
+    }
+});
+
+// GET /api/admin/vector-size
+adminRouter.get('/vector-size', async (req, res) => {
+    try {
+        const result = await ragService.getVectorCount();
+        if (result.success) {
+            res.status(200).json(result);
+        } else {
+            // If service indicates failure, it's likely an internal issue
+            res.status(500).json({ success: false, count: 0, message: result.message || "Failed to get vector count." });
+        }
+    } catch (error) {
+        console.error('Error in /api/admin/vector-size:', error);
+        res.status(500).json({ success: false, count: 0, message: `Internal Server Error: ${error.message}` });
+    }
+});
+
+// GET /api/admin/sources
+adminRouter.get('/sources', async (req, res) => {
+    try {
+        const result = await ragService.getSourceUrls();
+         if (result.success) {
+            res.status(200).json(result);
+        } else {
+             // If service indicates failure, it's likely an internal issue
+            res.status(500).json({ success: false, sources: [], message: result.message || "Failed to get source URLs." });
+        }
+    } catch (error) {
+        console.error('Error in /api/admin/sources:', error);
+        res.status(500).json({ success: false, sources: [], message: `Internal Server Error: ${error.message}` });
+    }
+});
+
+// POST /api/admin/reset-db
+adminRouter.post('/reset-db', async (req, res) => {
+    try {
+        const result = await ragService.resetDatabase();
+        if (result.success) {
+            res.status(200).json(result);
+        } else {
+             // If reset failed (e.g., file deletion error), report as internal server error
+            console.warn("Reset DB reported issues:", result.message);
+            res.status(500).json(result);
+        }
+    } catch (error) {
+        console.error('Error in /api/admin/reset-db:', error);
+        res.status(500).json({ success: false, message: `Internal Server Error: ${error.message}` });
+    }
+});
+
+// Mount the admin router *before* other potentially conflicting routes or static serving
+app.use('/api/admin', adminRouter);
+
 
 // Initialize locals for tracking proxy status
 app.use((req, res, next) => {
@@ -167,10 +245,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// In production, proxy all API requests including travel-instructions
-console.log(isDevelopment ? 'Development mode' : 'Production mode' + ': Proxying travel instructions to proxy server');
-
-/* --- API v2 Chatbot Route --- */
+// --- API v2 Chatbot Route ---
 app.post('/api/v2/chat', async (req, res) => {
   const { message } = req.body;
 
@@ -180,8 +255,8 @@ app.post('/api/v2/chat', async (req, res) => {
 
   try {
     console.log(`Received chat message: "${message}"`);
-    // 1. Retrieve relevant chunks using RAG service
-    const { chunks: contextChunks, sources } = await retrieveChunks(message);
+    // 1. Retrieve relevant chunks using RAG service (using the imported module)
+    const { chunks: contextChunks, sources } = await ragService.retrieveChunks(message);
 
     if (!contextChunks || contextChunks.length === 0) {
       console.warn(`No relevant context found for message: "${message}"`);
@@ -269,11 +344,15 @@ Answer:`; // Ensure the model starts generating the detailed answer here, follow
 
 
 /* Proxy setup for the backend server with error handling that enables direct fallback */
+// In production, proxy all API requests including travel-instructions
+const isDevelopment = process.env.NODE_ENV === 'development';
+console.log(isDevelopment ? 'Development mode' : 'Production mode' + ': Proxying travel instructions to proxy server');
+
 // Only apply the API proxy if NOT in development mode
 if (!isDevelopment) {
   console.log('Applying API proxy middleware (Non-Development mode).');
   app.use('/api', createProxyMiddleware({
-    target: 'http://localhost:3001',
+    target: 'http://localhost:3001', // Assuming proxy runs on 3001
     changeOrigin: true,
     logLevel: 'debug',
     onProxyReq: (proxyReq, req, res) => {
@@ -301,11 +380,14 @@ if (!isDevelopment) {
             // to reach the fallback handler defined below.
         } else {
             // For other API endpoints, return a standard error
-            res.status(503).json({
-                error: 'Proxy Service Unavailable',
-                message: 'The API proxy service is currently unavailable',
-                timestamp: new Date().toISOString()
-            });
+            // Check if headers have been sent before sending another response
+             if (!res.headersSent) {
+                res.status(503).json({
+                    error: 'Proxy Service Unavailable',
+                    message: 'The API proxy service is currently unavailable',
+                    timestamp: new Date().toISOString()
+                });
+            }
         }
     }
   }));
@@ -386,45 +468,55 @@ app.all('/api/travel-instructions*', async (req, res) => {
       console.log('Travel instructions API request served through direct API call');
     } catch (error) {
       console.error('Error in direct API call handler:', error);
-      res.status(500).json({
-        error: 'Internal Server Error',
-        message: 'Failed to retrieve travel instructions (direct fallback)',
-        timestamp: new Date().toISOString()
-      });
+       if (!res.headersSent) {
+          res.status(500).json({
+            error: 'Internal Server Error',
+            message: 'Failed to retrieve travel instructions (direct fallback)',
+            timestamp: new Date().toISOString()
+          });
+      }
     }
   }
 });
 
-// Serve the main landing page
+// --- Static File Serving ---
+// Serve the main landing page first (if it exists and is separate)
 app.use(express.static(path.join(__dirname, '../public_html')));
+// Then serve the frontend build (React app)
+app.use(express.static(path.join(__dirname, '../dist')));
 
-// Removed chatbot serving (static files and route handler)
 
-
-// Handle 404s
+// --- Fallback/404 Handling ---
+// This should come *after* all API routes and static file serving
 app.use((req, res) => {
-    res.status(404).sendFile(path.join(__dirname, '../public_html/index.html'));
+    // For any requests not handled by API routes or static files,
+    // serve the main index.html of the React app.
+    // This allows React Router to handle client-side routing.
+     const indexPath = path.join(__dirname, '../dist/index.html');
+     if (fs.existsSync(indexPath)) {
+         res.status(200).sendFile(indexPath); // Use 200 OK for SPA fallback
+     } else {
+         // If index.html doesn't exist, send a real 404
+         res.status(404).send('Not Found');
+     }
 });
 
 // Export the app instance for testing or programmatic use
 export default app;
 
-// Only start the server if this script is run directly (not imported as a module for testing)
-// if (process.env.NODE_ENV !== 'test') {
-// The check below is slightly more robust if NODE_ENV isn't reliably set during testing phases
-// Determine if the module is the main module being run
+// --- Server Startup ---
+// Only start the server if this script is run directly
 const isMainModule = import.meta.url === `file://${process.argv[1]}`;
-// A common pattern is also to check NODE_ENV, which Vitest usually sets. Let's use that for simplicity with Vitest.
-if (process.env.NODE_ENV !== 'test') {
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
+if (process.env.NODE_ENV !== 'test' && isMainModule) { // Added check for main module
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Server running on port ${PORT}`);
 
-    // Initialize the RAG service asynchronously after server starts
-    console.log('Triggering RAG service initialization...');
-    initializeRagService().catch(err => {
-        console.error("Background RAG service initialization failed:", err);
-        // Keep the server running, but the RAG features might be unavailable.
-        // Monitor logs for recurring failures.
-    });
+        // Initialize the RAG service asynchronously after server starts
+        console.log('Triggering RAG service initialization...');
+        // Use the imported service object now
+        ragService.initializeRagService().catch(err => {
+            console.error("Background RAG service initialization failed:", err);
+            // Keep the server running, but the RAG features might be unavailable.
+        });
     });
 }

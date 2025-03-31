@@ -16,8 +16,8 @@ module.exports = {
       watch: false,
       max_memory_restart: '1G',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      error_file: '/var/log/pb-cline/main-error.log',
-      out_file: '/var/log/pb-cline/main-out.log',
+      error_file: '/var/log/cb/main-error.log',
+      out_file: '/var/log/cb/main-out.log',
       time: true,
       restart_delay: 4000
     },
@@ -37,8 +37,8 @@ module.exports = {
       watch: false,
       max_memory_restart: '1G',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      error_file: '/var/log/pb-cline/proxy-error.log',
-      out_file: '/var/log/pb-cline/proxy-out.log',
+      error_file: '/var/log/cb/proxy-error.log',
+      out_file: '/var/log/cb/proxy-out.log',
       time: true,
       restart_delay: 4000
     }
@@ -50,9 +50,9 @@ module.exports = {
       user: 'appuser',
       host: '46.202.177.230',
       path: '/var/www/32cbgg8.com',
-      repo: 'git@github.com:yourusername/pb-cline.git',
+      repo: 'git@github.com:panic80/cb.git',
       ref: 'origin/main',
-      'pre-deploy': 'mkdir -p /var/log/pb-cline',
+      'pre-deploy': 'mkdir -p /var/log/cb',
       'post-deploy': 'npm ci && npm run build && NODE_ENV=production pm2 reload ecosystem.config.cjs --env production && pm2 save',
       'pre-setup': 'npm install -g pm2',
       env: {

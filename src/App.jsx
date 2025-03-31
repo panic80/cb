@@ -16,6 +16,7 @@ const PrivacyPage = lazy(() => import("./pages/PrivacyPage.jsx"));
 // Removed unused ModernChatPage import
 const OPIPage = lazy(() => import("./pages/OPIPage"));
 const ChatbotWidget = lazy(() => import("./components/ChatbotWidget.jsx")); // Added chatbot widget import
+const AdminPanel = lazy(() => import("./pages/AdminPanel.jsx")); // Added Admin Panel
 // const PolicyChatPage = lazy(() => import("./pages/PolicyChatPage.tsx")); // Removed chat page import
 // Prefetch components
 const prefetchComponent = (importFn) => {
@@ -200,6 +201,16 @@ const App = () => {
                       setState((prev) => ({ ...prev, theme: newTheme }))
                     }
                   />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <Suspense
+                  fallback={<div className="min-h-screen bg-background" />}
+                >
+                  <AdminPanel />
                 </Suspense>
               }
             />

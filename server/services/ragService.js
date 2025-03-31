@@ -2,6 +2,10 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
+import faiss from 'faiss-node';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 
@@ -19,15 +23,138 @@ if (!GEMINI_API_KEY) {
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const embeddingModel = genAI.getGenerativeModel({ model: "models/text-embedding-004" });
+const EMBEDDING_DIMENSION = 768; // Dimension for text-embedding-004
 
 const DEFAULT_TOP_N = 5;
 
-// --- In-Memory Cache ---
-// Simple cache for processed text chunks and their embeddings.
-// Replace with a more robust solution (e.g., Redis, Vector DB) for production.
-let documentChunks = []; // Stores { id: string, text: string, embedding: number[], sourceUrl: string, sourceTitle: string }
+// --- FAISS Index and Metadata Storage ---
+// Calculate __dirname for ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DATA_DIR = path.resolve(__dirname, '..', 'data'); // Use path.resolve for absolute path
+const INDEX_FILE_PATH = path.join(DATA_DIR, 'rag_index.faiss');
+const METADATA_FILE_PATH = path.join(DATA_DIR, 'rag_metadata.json');
+
+let faissIndex = null; // Will hold the loaded/created FAISS index
+let chunkMetadata = []; // Stores { id: string, text: string, sourceUrl: string, sourceTitle: string }
 let isInitialized = false;
 let lastUpdateTime = null;
+
+// --- Helper Functions for Persistence and Initialization ---
+
+// Helper to load metadata
+function loadMetadata() {
+    if (fs.existsSync(METADATA_FILE_PATH)) {
+        console.log(`Loading metadata from ${METADATA_FILE_PATH}`);
+        const metadataJson = fs.readFileSync(METADATA_FILE_PATH, 'utf-8');
+        try {
+            return JSON.parse(metadataJson);
+        } catch (e) {
+             console.error(`Error parsing metadata file ${METADATA_FILE_PATH}:`, e);
+             return []; // Return empty on parse error
+        }
+    }
+    console.log('Metadata file not found, returning empty array.');
+    return [];
+}
+
+// Helper to save metadata
+function saveMetadata(metadata) {
+    console.log(`Saving metadata (${metadata.length} items) to ${METADATA_FILE_PATH}...`);
+    fs.mkdirSync(DATA_DIR, { recursive: true }); // Ensure directory exists
+    fs.writeFileSync(METADATA_FILE_PATH, JSON.stringify(metadata, null, 2), 'utf-8');
+    console.log('Metadata saved successfully.');
+    lastUpdateTime = new Date(); // Update timestamp
+}
+
+// Helper to load FAISS index
+function loadIndex() {
+    if (fs.existsSync(INDEX_FILE_PATH)) {
+        console.log(`Loading FAISS index from ${INDEX_FILE_PATH}`);
+        try {
+           return faiss.IndexFlatL2.read(INDEX_FILE_PATH);
+        } catch(e) {
+            console.error(`Error reading FAISS index file ${INDEX_FILE_PATH}:`, e);
+            // If reading fails, maybe delete the corrupted index? Or handle differently.
+            // For now, return null indicating failure to load.
+            try {
+                console.warn(`Attempting to delete potentially corrupt index file: ${INDEX_FILE_PATH}`);
+                fs.unlinkSync(INDEX_FILE_PATH);
+            } catch (unlinkError) {
+                console.error(`Failed to delete potentially corrupt index file: ${unlinkError}`);
+            }
+            return null;
+        }
+    }
+    console.log('FAISS index file not found, returning null.');
+    return null;
+}
+
+// Helper to save FAISS index
+function saveIndex(index) {
+    if (!index) {
+        console.error("Attempted to save a null FAISS index.");
+        return;
+    }
+    console.log(`Saving FAISS index (${index.ntotal()} vectors) to ${INDEX_FILE_PATH}...`);
+    fs.mkdirSync(DATA_DIR, { recursive: true }); // Ensure directory exists
+    try {
+        index.write(INDEX_FILE_PATH);
+        console.log('FAISS index saved successfully.');
+        lastUpdateTime = new Date(); // Update timestamp
+    } catch (e) {
+         console.error(`Error writing FAISS index file ${INDEX_FILE_PATH}:`, e);
+         throw new Error(`Failed to save FAISS index: ${e.message}`); // Rethrow to signal failure
+    }
+}
+
+// Helper to ensure service is initialized (simplified version for admin tasks)
+// Ensures faissIndex and chunkMetadata are loaded or initialized as empty.
+async function ensureInitialized() {
+    // Avoid re-running if already initialized and objects exist
+    if (isInitialized && faissIndex && chunkMetadata) {
+        // console.log("ensureInitialized: Already initialized and objects exist.");
+        return;
+    }
+
+    console.log("Service not fully initialized or objects missing, ensuring index and metadata are loaded/created...");
+    // Prioritize loading existing data
+    faissIndex = loadIndex();
+    chunkMetadata = loadMetadata();
+
+    if (faissIndex && chunkMetadata.length > 0 && faissIndex.ntotal() !== chunkMetadata.length) {
+         console.warn(`ensureInitialized: Mismatch between FAISS index size (${faissIndex.ntotal()}) and metadata count (${chunkMetadata.length}). Data might be corrupted. Index will be kept, but metadata might be out of sync.`);
+         // Decide how to handle mismatch - rebuild? For now, log and proceed cautiously.
+    }
+
+    // If index doesn't exist or failed to load, create a new empty one in memory
+    if (!faissIndex) {
+        console.log("ensureInitialized: Creating new empty FAISS index in memory.");
+        faissIndex = new faiss.IndexFlatL2(EMBEDDING_DIMENSION);
+        // If index is new, metadata should also be considered empty/new
+        if (chunkMetadata.length > 0) {
+             console.warn("ensureInitialized: New index created, but existing metadata found. Clearing metadata for consistency.");
+             chunkMetadata = [];
+        }
+    }
+
+    // Mark as initialized because we have *some* state (even if empty)
+    isInitialized = true;
+    lastUpdateTime = fs.existsSync(INDEX_FILE_PATH) ? new Date(fs.statSync(INDEX_FILE_PATH).mtime) : new Date();
+    console.log(`Service initialization check complete. Index vectors: ${faissIndex?.ntotal() ?? 0}, Metadata items: ${chunkMetadata?.length ?? 0}`);
+
+    // Final safety check: ensure faissIndex is an object, not null
+    if (!faissIndex) {
+       console.error("ensureInitialized: CRITICAL - faissIndex is still null after initialization logic. Creating empty index.");
+       faissIndex = new faiss.IndexFlatL2(EMBEDDING_DIMENSION);
+    }
+     // Final safety check: ensure chunkMetadata is an array
+    if (!Array.isArray(chunkMetadata)) {
+        console.error("ensureInitialized: CRITICAL - chunkMetadata is not an array after initialization logic. Resetting to empty array.");
+        chunkMetadata = [];
+    }
+}
+
 
 // --- Content Fetching & Processing ---
 
@@ -103,8 +230,8 @@ function parseHtmlContent(html) {
  * Splits the text into smaller chunks with a target size and overlap.
  * Attempts to split at sentence boundaries or paragraphs first.
  * @param {string} text The full extracted text.
- * @param {number} [targetChunkSize=1500] Target characters per chunk.
- * @param {number} [overlapSize=150] Characters to overlap between chunks.
+ * @param {number} [targetChunkSize=1000] Target characters per chunk.
+ * @param {number} [overlapSize=100] Characters to overlap between chunks.
  * @returns {string[]} An array of text chunks.
  */
 function chunkText(text, targetChunkSize = 1000, overlapSize = 100) {
@@ -173,83 +300,7 @@ function chunkText(text, targetChunkSize = 1000, overlapSize = 100) {
     return chunks.filter(chunk => chunk.length > 10); // Final filter for very small chunks
 }
 
-// --- Embedding & Similarity ---
-
-/**
- * Calculates the dot product of two vectors.
- * @param {number[]} vecA
- * @param {number[]} vecB
- * @returns {number} The dot product.
- * @throws {Error} If vectors have different lengths.
- */
-function dotProduct(vecA, vecB) {
-    if (vecA.length !== vecB.length) {
-        throw new Error("Vectors must have the same length for dot product.");
-    }
-    let product = 0;
-    for (let i = 0; i < vecA.length; i++) {
-        product += vecA[i] * vecB[i];
-    }
-    return product;
-}
-
-/**
- * Calculates the magnitude (Euclidean norm) of a vector.
- * @param {number[]} vec
- * @returns {number} The magnitude.
- */
-function magnitude(vec) {
-    let sumOfSquares = 0;
-    for (let i = 0; i < vec.length; i++) {
-        sumOfSquares += vec[i] * vec[i];
-    }
-    return Math.sqrt(sumOfSquares);
-}
-
-/**
- * Calculates the cosine similarity between two vectors.
- * @param {number[]} vecA
- * @param {number[]} vecB
- * @returns {number} Cosine similarity score (between -1 and 1).
- */
-function cosineSimilarity(vecA, vecB) {
-    const magA = magnitude(vecA);
-    const magB = magnitude(vecB);
-    if (magA === 0 || magB === 0) {
-        return 0; // Handle zero vectors
-    }
-    return dotProduct(vecA, vecB) / (magA * magB);
-}
-
-
-/**
- * Finds the top N most similar text chunks to a query embedding.
- * Uses cosine similarity for comparison.
- * @param {number[]} queryEmbedding The embedding of the user's query.
- * @param {number} [topN=5] The number of top results to return.
- * @returns {Array<{id: string, text: string, score: number, sourceUrl: string, sourceTitle: string}>} Sorted array of similar chunks.
- */
-function findSimilarChunks(queryEmbedding, topN = DEFAULT_TOP_N) {
-    if (!isInitialized || documentChunks.length === 0) {
-        console.warn('RAG service not initialized or no chunks available.');
-        return [];
-    }
-    console.log(`Finding top ${topN} similar chunks...`);
-
-    const similarities = documentChunks.map(chunk => ({
-        id: chunk.id,
-        text: chunk.text,
-        score: cosineSimilarity(queryEmbedding, chunk.embedding),
-        sourceUrl: chunk.sourceUrl,
-        sourceTitle: chunk.sourceTitle
-    }));
-
-    // Sort by score descending
-    similarities.sort((a, b) => b.score - a.score);
-
-    console.log(`Found ${similarities.length} chunks, returning top ${Math.min(topN, similarities.length)}.`);
-    return similarities.slice(0, topN);
-}
+// --- Embedding ---
 
 // Helper function to embed a single chunk with retry logic, now takes chunkData object
 async function embedSingleChunkWithRetry(chunkData, embeddingModel) {
@@ -386,9 +437,10 @@ async function embedQuery(queryText) {
 
 // --- Initialization & Retrieval ---
 
+
 /**
- * Initializes the RAG service: fetches, parses, chunks, and embeds content.
- * Stores the results in the in-memory cache.
+ * Initializes the RAG service: Loads the FAISS index and metadata if they exist,
+ * otherwise fetches, parses, chunks, embeds content, and builds/saves them.
  * @param {boolean} [forceRefresh=false] - Force refresh even if already initialized.
  */
 async function initializeRagService(forceRefresh = false) {
@@ -396,7 +448,8 @@ async function initializeRagService(forceRefresh = false) {
     if (!SOURCE_URLS || SOURCE_URLS.length === 0) {
         console.warn("SOURCE_URLS array is empty. Cannot initialize RAG service.");
         isInitialized = false;
-        documentChunks = [];
+        faissIndex = null;
+        chunkMetadata = [];
         return;
     }
 
@@ -408,73 +461,152 @@ async function initializeRagService(forceRefresh = false) {
 
     console.log(`Initializing RAG service... (Force refresh: ${forceRefresh})`);
     isInitialized = false; // Mark as initializing
-    let allEmbeddedChunks = [];
-    let totalSourceCount = SOURCE_URLS.length;
-    let processedSourceCount = 0;
 
     try {
-        const processingPromises = SOURCE_URLS.map(async (url) => {
-            // Wrap the processing logic for a single URL in an async function
-            console.log(`Starting processing for source: ${url}`); // Log start
-            try {
-                const html = await fetchSourceContent(url);
-                const { text, title } = parseHtmlContent(html);
-                const textChunks = chunkText(text);
-                const chunkDataList = textChunks.map((chunkText, index) => ({
-                    id: `${url}#chunk_${index}`,
-                    text: chunkText,
-                    sourceUrl: url,
-                    sourceTitle: title
-                }));
-                const embeddedChunks = await embedChunks(chunkDataList); // This already handles concurrency for embedding *within* a source
-                console.log(`Successfully processed source: ${url}, got ${embeddedChunks.length} chunks.`); // Log success
-                return embeddedChunks; // Return the chunks for this URL
-            } catch (sourceError) {
-                console.error(`Failed to process source ${url}:`, sourceError.message);
-                // Re-throw the error to be captured by allSettled's status
-                throw sourceError;
+        // Check if index and metadata files exist
+        const indexExists = fs.existsSync(INDEX_FILE_PATH);
+        const metadataExists = fs.existsSync(METADATA_FILE_PATH);
+
+        if (indexExists && metadataExists && !forceRefresh) {
+            // Use helper functions now
+            faissIndex = loadIndex();
+            chunkMetadata = loadMetadata(); // Handles file not found and parse errors
+
+             // Check if loading succeeded and if counts match
+            if (!faissIndex) {
+                 console.error("initializeRagService: Failed to load existing FAISS index. Forcing rebuild.");
+                 await initializeRagService(true); // Recurse with forceRefresh
+                 return;
             }
-        });
 
-        console.log(`Waiting for ${processingPromises.length} sources to be processed in parallel...`);
-        const results = await Promise.allSettled(processingPromises);
-
-        allEmbeddedChunks = []; // Reset here before collecting results
-        let successfulSourceCount = 0;
-        let failedSourceCount = 0;
-        totalSourceCount = SOURCE_URLS.length; // Ensure totalSourceCount is accurate
-
-        results.forEach((result, index) => {
-            const url = SOURCE_URLS[index]; // Get corresponding URL
-            if (result.status === 'fulfilled') {
-                // console.log(`Source processing succeeded for: ${url}`); // Keep console less verbose
-                allEmbeddedChunks = allEmbeddedChunks.concat(result.value);
-                successfulSourceCount++;
+            if (faissIndex.ntotal() !== chunkMetadata.length) {
+                console.warn(`Mismatch between FAISS index size (${faissIndex.ntotal()}) and metadata count (${chunkMetadata.length}). Data might be corrupted. Consider refreshing.`);
+                // Optionally force a rebuild here, or just log the warning
+                // For now, we proceed but this indicates a potential issue.
             } else {
-                // Log the reason for failure, accessing the message property if it exists
-                console.error(`Source processing failed for: ${url}. Reason:`, result.reason?.message || result.reason);
-                failedSourceCount++;
+                console.log(`Successfully loaded index with ${faissIndex.ntotal()} vectors and corresponding metadata.`);
             }
-        });
+            lastUpdateTime = new Date(fs.statSync(INDEX_FILE_PATH).mtime); // Use file modification time
+            isInitialized = true;
+        } else {
+            console.log('Building new FAISS index and metadata (or forceRefresh=true)...');
+            if (forceRefresh) {
+                console.log("Force refresh requested.");
+            }
+            if (!indexExists) console.log(`Reason: Index file not found at ${INDEX_FILE_PATH}`);
+            if (!metadataExists) console.log(`Reason: Metadata file not found at ${METADATA_FILE_PATH}`);
 
-        // Use the counts derived from results instead of processedSourceCount
-        processedSourceCount = successfulSourceCount; // Update processedSourceCount for the final log message
+            // --- Fetch, Parse, Chunk, Embed ---
+            let allEmbeddedChunks = [];
+            let totalSourceCount = SOURCE_URLS.length;
 
-        documentChunks = allEmbeddedChunks; // Assign combined chunks to the cache
-        lastUpdateTime = new Date();
-        isInitialized = true;
-        console.log(`RAG service initialization finished. ${successfulSourceCount} sources succeeded, ${failedSourceCount} sources failed. Total chunks: ${documentChunks.length}. Last update: ${lastUpdateTime.toISOString()}`);
+            const processingPromises = SOURCE_URLS.map(async (url) => {
+                console.log(`Starting processing for source: ${url}`);
+                try {
+                    const html = await fetchSourceContent(url);
+                    const { text, title } = parseHtmlContent(html);
+                    const textChunks = chunkText(text);
+                    const chunkDataList = textChunks.map((chunkText, index) => ({
+                        id: `${url}#chunk_${index}`,
+                        text: chunkText,
+                        sourceUrl: url,
+                        sourceTitle: title
+                    }));
+                    const embeddedChunks = await embedChunks(chunkDataList);
+                    console.log(`Successfully processed source: ${url}, got ${embeddedChunks.length} chunks.`);
+                    return embeddedChunks;
+                } catch (sourceError) {
+                    console.error(`Failed to process source ${url}:`, sourceError.message);
+                    throw sourceError; // Let Promise.allSettled catch this
+                }
+            }); // End of processingPromises map
+
+            console.log(`Waiting for ${processingPromises.length} sources to be processed in parallel...`);
+            const results = await Promise.allSettled(processingPromises);
+
+            allEmbeddedChunks = [];
+            let successfulSourceCount = 0;
+            let failedSourceCount = 0;
+
+            results.forEach((result, index) => {
+                const url = SOURCE_URLS[index];
+                if (result.status === 'fulfilled') {
+                    allEmbeddedChunks = allEmbeddedChunks.concat(result.value);
+                    successfulSourceCount++;
+                } else {
+                    console.error(`Source processing failed for: ${url}. Reason:`, result.reason?.message || result.reason);
+                    failedSourceCount++;
+                }
+            });
+
+            console.log(`Embedding process finished. ${successfulSourceCount} sources succeeded, ${failedSourceCount} sources failed. Total successful chunks: ${allEmbeddedChunks.length}.`);
+
+            if (allEmbeddedChunks.length === 0) {
+                console.error("No chunks were successfully embedded. Cannot build FAISS index.");
+                isInitialized = false; // Remain uninitialized
+                faissIndex = null;
+                chunkMetadata = [];
+                return; // Exit initialization early
+            }
+
+            // --- Build FAISS Index ---
+            console.log(`Building FAISS index (Dimension: ${EMBEDDING_DIMENSION})...`);
+            faissIndex = new faiss.IndexFlatL2(EMBEDDING_DIMENSION);
+
+            // Prepare embeddings and metadata
+            chunkMetadata = []; // Reset metadata
+            const embeddings = [];
+            for (const chunk of allEmbeddedChunks) {
+                chunkMetadata.push({
+                    id: chunk.id,
+                    text: chunk.text,
+                    sourceUrl: chunk.sourceUrl,
+                    sourceTitle: chunk.sourceTitle
+                });
+                embeddings.push(...chunk.embedding); // Flatten embeddings for FAISS
+            }
+
+             console.log(`Adding ${allEmbeddedChunks.length} vectors to the index...`);
+            faissIndex.add(embeddings); // Pass the flat JS Array directly
+            console.log(`FAISS index built. Total vectors: ${faissIndex.ntotal()}`);
+
+            // --- Save Index and Metadata ---
+            try {
+                console.log(`Ensuring data directory exists: ${DATA_DIR}`);
+                fs.mkdirSync(DATA_DIR, { recursive: true });
+
+                // Use helper functions now
+                saveIndex(faissIndex);
+                saveMetadata(chunkMetadata);
+
+                console.log("Index and metadata saved successfully.");
+                lastUpdateTime = new Date();
+                isInitialized = true;
+
+            } catch (saveError) {
+                console.error("CRITICAL ERROR: Failed to save FAISS index or metadata:", saveError);
+                // Decide on state: maybe keep in-memory index but mark as non-persistent?
+                isInitialized = true; // Technically initialized in memory, but saving failed
+                console.warn("Service is initialized in memory, but persistence failed.");
+            }
+        } // End of else block (build index)
+
+        console.log(`RAG service initialization finished. Initialized: ${isInitialized}, Chunks: ${chunkMetadata.length}, Last update: ${lastUpdateTime?.toISOString() ?? 'N/A'}`);
+
     } catch (error) {
-        // This catch block handles errors *before* or *during* the Promise.allSettled setup,
-        // not errors from individual source processing (which are handled above).
-        console.error('initializeRagService: CRITICAL FAILURE during initialization setup:', {
+        // This catch block handles errors during the overall initialization flow
+        // (e.g., issues setting up file checks, major errors outside source processing/saving logic)
+        console.error('initializeRagService: CRITICAL FAILURE during initialization process:', {
             message: error.message,
             stack: error.stack,
             cause: error.cause // Include cause if available
         });
-        // Keep potentially stale data if initialization fails? Or clear it?
-        // documentChunks = []; // Option: Clear cache on failure
+        faissIndex = null; // Clear resources on major failure
+        chunkMetadata = [];
         isInitialized = false; // Ensure it's marked as not initialized on failure
+        // Optionally delete potentially partial/corrupt files if initialization failed badly
+        // try { if(fs.existsSync(INDEX_FILE_PATH)) fs.unlinkSync(INDEX_FILE_PATH); } catch(e){}
+        // try { if(fs.existsSync(METADATA_FILE_PATH)) fs.unlinkSync(METADATA_FILE_PATH); } catch(e){}
     }
 }
 
@@ -485,18 +617,73 @@ async function initializeRagService(forceRefresh = false) {
  * @returns {Promise<{chunks: Array<{id: string, text: string, score: number, sourceUrl: string, sourceTitle: string}>, sources: Array<{url: string, title: string}>}>} An object containing the relevant chunks and a unique list of their sources.
  */
 async function retrieveChunks(query, topN = DEFAULT_TOP_N) {
-    console.log(`retrieveChunks: Called with query: "${query.substring(0, 50)}...", topN: ${topN}`);
-    if (!isInitialized) {
-        console.warn('retrieveChunks: WARNING - RAG service is not initialized. Returning empty.');
-        // Optional: Try initializing on demand, but this adds latency to the first request.
-        // await initializeRagService();
-        // if (!isInitialized) return { chunks: [], sources: [] }; // Still failed
-        return { chunks: [], sources: [] }; // Return consistent empty structure
-    }
+     console.log(`retrieveChunks: Called with query: "${query.substring(0, 50)}...", topN: ${topN}`);
+     // Use ensureInitialized to load data if needed
+     await ensureInitialized();
+
+     // Check again after trying to initialize
+     if (!isInitialized || !faissIndex || faissIndex.ntotal() === 0) { // Check ntotal() for empty index
+         console.warn('retrieveChunks: RAG service is not initialized or has no data after check. Returning empty.');
+         return { chunks: [], sources: [] };
+     }
+
+     // Also check metadata consistency, though ensureInitialized warns about this
+     if (!chunkMetadata || chunkMetadata.length === 0 || chunkMetadata.length !== faissIndex.ntotal()) {
+         console.warn(`retrieveChunks: Metadata inconsistent or empty (Index: ${faissIndex.ntotal()}, Meta: ${chunkMetadata?.length ?? 0}). Search might yield incomplete results.`);
+         // Proceed with search, but be aware metadata might be wrong/missing for found indices
+     }
 
     try {
-        const queryEmbedding = await embedQuery(query);
-        const similarChunks = findSimilarChunks(queryEmbedding, topN);
+        // Generate the embedding for the query
+        const queryVector = await embedQuery(query); // embedQuery now returns the array directly
+
+        // Corrected Checks: Validate the array itself
+        if (!Array.isArray(queryVector)) { // Check if it's actually an array
+            console.error('embedQuery did not return a valid embedding array:', queryVector);
+            return { chunks: [], sources: [] }; // Return standard empty result
+        }
+
+        // Check for empty array (existing logic, now operating on the direct result)
+        if (!Array.isArray(queryVector) || queryVector.length === 0) {
+            console.warn(`Retrieved query embedding is not a valid, non-empty array (length: ${queryVector?.length}). Returning empty results. Query: "${query.substring(0, 50)}..."`); // Log specific warning
+            // If the embedding is empty, we cannot perform a search. Return the standard empty result.
+            return { chunks: [], sources: [] };
+        }
+
+        console.log(`Searching FAISS index (size: ${faissIndex.ntotal()}) for top ${topN} neighbours...`);
+        // Pass the plain JavaScript array directly to FAISS search
+        const searchResults = faissIndex.search(queryVector, topN);
+
+        console.log(`FAISS search returned ${searchResults.labels.length} results.`);
+        // searchResults contains { distances: Float32Array, labels: Int32Array }
+        // labels contains the indices (0-based) of the vectors in the index.
+
+        const similarChunks = [];
+        for (let i = 0; i < searchResults.labels.length; i++) {
+            const index = searchResults.labels[i];
+            const distance = searchResults.distances[i]; // L2 distance, smaller is better
+             
+            // Check if the index is valid and within bounds of our metadata
+            if (index >= 0 && index < chunkMetadata.length) {
+                const metadata = chunkMetadata[index];
+                similarChunks.push({
+                    id: metadata.id,
+                    text: metadata.text,
+                    score: 1 / (1 + distance), // Convert L2 distance to a similarity score (0 to 1, higher is better)
+                    // score: distance, // Alternative: directly return distance (lower is better)
+                    sourceUrl: metadata.sourceUrl,
+                    sourceTitle: metadata.sourceTitle
+                });
+            } else {
+                console.warn(`FAISS returned invalid index: ${index}. Metadata length: ${chunkMetadata.length}`);
+            }
+        }
+        
+        // Handle case where metadata might be shorter than index size after a warning
+        if (similarChunks.length < searchResults.labels.length) {
+             console.warn(`retrieveChunks: Found ${searchResults.labels.length} results from FAISS, but only ${similarChunks.length} had corresponding metadata.`);
+        }
+
         // De-duplicate sources based on sourceUrl, preserving order of first appearance
         const uniqueSources = [];
         const seenUrls = new Set();
@@ -527,20 +714,221 @@ async function retrieveChunks(query, topN = DEFAULT_TOP_N) {
 
 /**
  * Gets the status of the RAG service.
+ * Note: This status reflects the *initial* configuration sources, not necessarily all sources currently in the index if added via addUrlSource.
  */
 function getStatus() {
+    // Ensure latest counts are reflected if initialized
+    const currentVectorCount = (isInitialized && faissIndex) ? faissIndex.ntotal() : 0;
+    const currentChunkCount = (isInitialized && chunkMetadata) ? chunkMetadata.length : 0;
+
     return {
         initialized: isInitialized,
         lastUpdateTime: lastUpdateTime ? lastUpdateTime.toISOString() : null,
-        chunkCount: documentChunks.length,
-        sourceUrls: SOURCE_URLS, // Corrected variable name to reflect array
+        chunkCount: currentChunkCount, // Use metadata length
+        vectorCount: currentVectorCount, // Add actual vector count
+        sourceUrls: SOURCE_URLS, // Keep this as the originally configured sources
     };
 }
+
+
+// --- Admin Functions ---
+
+/**
+ * Adds a new URL source to the FAISS index and metadata.
+ * Fetches, processes, embeds the content, and updates the persistent storage.
+ * @param {string} url The URL to add.
+ * @returns {Promise<{success: boolean, message: string, chunksAdded: number}>} Result object.
+ */
+async function addUrlSource(url) {
+    console.log(`Admin: addUrlSource called for URL: ${url}`);
+    await ensureInitialized(); // Make sure index/metadata are loaded/ready
+
+    // Basic URL validation
+    if (!url || typeof url !== 'string' || !url.startsWith('http')) {
+         return { success: false, message: "Invalid URL provided.", chunksAdded: 0 };
+    }
+
+    // Check if URL already exists in metadata to avoid duplicates
+    const existingSource = chunkMetadata.find(meta => meta.sourceUrl === url);
+    if (existingSource) {
+        const message = `URL '${url}' already exists in the metadata. Skipping addition.`;
+        console.warn(`Admin: addUrlSource - ${message}`);
+        return { success: false, message: message, chunksAdded: 0 };
+    }
+
+    try {
+        console.log(`Admin: Processing new source: ${url}`);
+        const html = await fetchSourceContent(url);
+        const { text, title } = parseHtmlContent(html);
+        const textChunks = chunkText(text);
+        const chunkDataList = textChunks.map((chunkText, index) => ({
+            id: `${url}#chunk_${index}`, // Simple ID generation
+            text: chunkText,
+            sourceUrl: url,
+            sourceTitle: title
+        }));
+
+        const embeddedChunks = await embedChunks(chunkDataList);
+
+        if (!embeddedChunks || embeddedChunks.length === 0) {
+            throw new Error(`No chunks were successfully embedded for URL: ${url}`);
+        }
+
+        console.log(`Admin: Successfully embedded ${embeddedChunks.length} chunks for ${url}.`);
+
+        // Prepare embeddings and new metadata entries
+        const newEmbeddings = [];
+        const newMetadataEntries = [];
+        for (const chunk of embeddedChunks) {
+            newMetadataEntries.push({
+                id: chunk.id,
+                text: chunk.text,
+                sourceUrl: chunk.sourceUrl,
+                sourceTitle: chunk.sourceTitle
+            });
+            newEmbeddings.push(...chunk.embedding); // Flatten embeddings
+        }
+
+        // Add to in-memory index and metadata
+        console.log(`Admin: Adding ${embeddedChunks.length} new vectors to FAISS index...`);
+        faissIndex.add(newEmbeddings); // Add new vectors
+        chunkMetadata.push(...newMetadataEntries); // Append new metadata
+
+        console.log(`Admin: FAISS index size now ${faissIndex.ntotal()}, Metadata count now ${chunkMetadata.length}`);
+
+        // --- Save updated Index and Metadata ---
+        // Important: Save both index and metadata atomically if possible, or at least sequentially.
+        // If saving index fails, we might have inconsistent state.
+        try {
+             saveIndex(faissIndex); // Save the updated index
+             saveMetadata(chunkMetadata); // Save the updated metadata
+        } catch (saveError) {
+             console.error("Admin: CRITICAL ERROR saving index/metadata after adding source:", saveError);
+             // Attempt to revert in-memory changes? Difficult.
+             // For now, log the error. The in-memory state is updated, but persistence failed.
+             // The service might be inconsistent on next load.
+             return { success: false, message: `Failed to save updated index/metadata: ${saveError.message}`, chunksAdded: embeddedChunks.length };
+        }
+
+        const message = `Successfully added source '${url}' with ${embeddedChunks.length} chunks.`;
+        console.log(`Admin: addUrlSource - ${message}`);
+        return { success: true, message: message, chunksAdded: embeddedChunks.length };
+
+    } catch (error) {
+        const errorMessage = `Failed to add source URL '${url}': ${error.message}`;
+        console.error("Admin: addUrlSource - Error:", error);
+        return { success: false, message: errorMessage, chunksAdded: 0 };
+    }
+}
+
+/**
+ * Gets the current number of vectors in the FAISS index.
+ * @returns {Promise<{success: boolean, count: number, message?: string}>}
+ */
+async function getVectorCount() {
+    await ensureInitialized(); // Ensure index is loaded/ready
+    if (!faissIndex) {
+        return { success: false, count: 0, message: "FAISS Index is not available." };
+    }
+    const count = faissIndex.ntotal();
+    return { success: true, count: count };
+}
+
+/**
+ * Gets the list of unique source URLs present in the metadata.
+ * @returns {Promise<{success: boolean, sources: Array<{url: string, title: string}>, message?: string}>}
+ */
+async function getSourceUrls() {
+    await ensureInitialized(); // Ensure metadata is loaded
+    if (!chunkMetadata) {
+         return { success: false, sources: [], message: "Metadata is not available." };
+    }
+
+    const uniqueSourcesMap = new Map();
+    chunkMetadata.forEach(meta => {
+        if (meta.sourceUrl && !uniqueSourcesMap.has(meta.sourceUrl)) {
+            uniqueSourcesMap.set(meta.sourceUrl, meta.sourceTitle || 'Untitled Source');
+        }
+    });
+
+    const sources = Array.from(uniqueSourcesMap, ([url, title]) => ({ url, title }));
+    return { success: true, sources: sources };
+}
+
+/**
+ * Resets the database by deleting the index and metadata files
+ * and clearing the in-memory state.
+ * @returns {Promise<{success: boolean, message: string}>}
+ */
+async function resetDatabase() {
+    console.warn("Admin: resetDatabase called. Deleting index and metadata files...");
+    let indexDeleted = false;
+    let metadataDeleted = false;
+    let errorMessages = [];
+
+    // Delete index file
+    try {
+        if (fs.existsSync(INDEX_FILE_PATH)) {
+            fs.unlinkSync(INDEX_FILE_PATH);
+            console.log(`Admin: Deleted index file: ${INDEX_FILE_PATH}`);
+            indexDeleted = true;
+        } else {
+            console.log(`Admin: Index file not found, nothing to delete: ${INDEX_FILE_PATH}`);
+            indexDeleted = true; // Consider it success if not found
+        }
+    } catch (error) {
+        const msg = `Failed to delete index file ${INDEX_FILE_PATH}: ${error.message}`;
+        console.error("Admin: resetDatabase -", msg);
+        errorMessages.push(msg);
+    }
+
+    // Delete metadata file
+    try {
+        if (fs.existsSync(METADATA_FILE_PATH)) {
+            fs.unlinkSync(METADATA_FILE_PATH);
+            console.log(`Admin: Deleted metadata file: ${METADATA_FILE_PATH}`);
+            metadataDeleted = true;
+        } else {
+            console.log(`Admin: Metadata file not found, nothing to delete: ${METADATA_FILE_PATH}`);
+            metadataDeleted = true; // Consider it success if not found
+        }
+    } catch (error) {
+         const msg = `Failed to delete metadata file ${METADATA_FILE_PATH}: ${error.message}`;
+        console.error("Admin: resetDatabase -", msg);
+        errorMessages.push(msg);
+    }
+
+    // Reset in-memory state regardless of file deletion success/failure
+    console.log("Admin: Resetting in-memory state (index, metadata, initialized flag).");
+    // Release index resources if it exists before nulling
+    // Note: faiss-node might not have an explicit 'free'. Setting to null lets GC handle it.
+    // Check specific library docs if explicit cleanup is needed.
+    // if (faissIndex && typeof faissIndex.free === 'function') { ... }
+    faissIndex = null; // Let ensureInitialized create a new one if needed later
+    chunkMetadata = [];
+    isInitialized = false; // Mark as uninitialized, needs reloading/rebuilding
+    lastUpdateTime = null;
+
+    // Force re-initialization to an empty state immediately
+    await ensureInitialized();
+
+    if (indexDeleted && metadataDeleted && errorMessages.length === 0) {
+        return { success: true, message: "Database reset successfully. Index and metadata files deleted, in-memory state cleared and re-initialized empty." };
+    } else {
+        return { success: false, message: `Database reset finished with issues. File deletions - Index: ${indexDeleted}, Metadata: ${metadataDeleted}. Errors: ${errorMessages.join("; ")} In-memory state cleared and re-initialized empty.` };
+    }
+}
+
 
 export {
     initializeRagService,
     retrieveChunks,
     getStatus,
+    // Admin functions
+    addUrlSource,
+    getVectorCount,
+    getSourceUrls,
+    resetDatabase,
     // Expose embedQuery if needed elsewhere, e.g., for testing
     // embedQuery
 };
