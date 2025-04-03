@@ -7,7 +7,7 @@ export default function PrivacyModal({ show, onClose }) {
     <>
       {/* Modal Overlay */}
       <div
-        className="fixed inset-0 bg-black/60 z-40 animate-fade-in"
+        className="fixed inset-0 bg-black/70 z-40 backdrop-blur-sm animate-fade-in flex items-center justify-center"
         onClick={onClose} // Close modal when overlay is clicked
         onKeyDown={(e) => {
           // Add keyboard accessibility
@@ -20,20 +20,21 @@ export default function PrivacyModal({ show, onClose }) {
         aria-label="Close privacy modal" // Add accessible label
       />
       {/* Modal Content Area */}
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 animate-float-up">
+      <div className="fixed z-50 animate-scale flex items-center justify-center inset-0 pointer-events-none">
+        <div className="pointer-events-auto">
         <div className="w-[min(90vw,_32rem)] bg-[var(--card)] text-[var(--text)] rounded-xl border border-[var(--border)] shadow-2xl overflow-hidden">
           {/* Header */}
-          <div className="p-4 border-b border-[var(--border)]">
+          <div className="px-6 py-5 border-b border-[var(--border)]">
             <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-semibold">Privacy Policy</h2>
+              <h2 className="text-2xl font-bold text-[var(--primary)]">Privacy Policy</h2>
               <button
                 onClick={onClose} // Use the passed onClose handler
-                className="p-2 hover:bg-[var(--background-secondary)] rounded-full transition-colors"
+                className="p-2 hover:bg-[var(--background-secondary)] hover:text-[var(--primary)] rounded-full transition-all duration-200 transform hover:scale-110"
                 aria-label="Close privacy modal"
               >
                 {/* Close Icon */}
                 <svg
-                  className="w-5 h-5"
+                  className="w-6 h-6"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -54,62 +55,112 @@ export default function PrivacyModal({ show, onClose }) {
             className="overflow-y-auto"
             style={{ maxHeight: "calc(100vh - 16rem)" }}
           >
-            <div className="p-4 space-y-4">
-              <h3 className="text-lg font-semibold">General Privacy Notice</h3>
-              <p className="text-[var(--text)] leading-relaxed">
-                We prioritize the protection of your personal information and
-                are committed to maintaining your trust.
-              </p>
+            <div className="p-6 space-y-6">
+              <div className="bg-[var(--background-secondary)] p-4 rounded-lg border-l-4 border-[var(--primary)]">
+                <h3 className="text-xl font-semibold mb-2">General Privacy Notice</h3>
+                <p className="text-[var(--text)] leading-relaxed">
+                  We prioritize the protection of your personal information and
+                  are committed to maintaining your trust.
+                </p>
+              </div>
 
-              <h3 className="text-lg font-semibold mt-6">
-                Data Collection & Usage
-              </h3>
-              <ul className="list-disc pl-5 space-y-2 text-[var(--text)] opacity-80">
-                <li>
-                  We collect only essential information needed for the service
-                </li>
-                <li>Your data is encrypted and stored securely</li>
-                <li>We do not sell or share your personal information</li>
-                <li>
-                  You have control over your data and can request its deletion
-                </li>
-              </ul>
+              <div>
+                <h3 className="text-xl font-semibold mb-3 flex items-center">
+                  <svg className="w-5 h-5 mr-2 text-[var(--primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                  Data Collection & Usage
+                </h3>
+                <ul className="list-none space-y-3 text-[var(--text)] pl-5">
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-[var(--primary)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>We collect only essential information needed for the service</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-[var(--primary)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Your data is encrypted and stored securely</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-[var(--primary)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>We do not sell or share your personal information</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-[var(--primary)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>You have control over your data and can request its deletion</span>
+                  </li>
+                </ul>
+              </div>
 
-              <h3 className="text-lg font-semibold mt-6">
-                AI Processing (Gemini)
-              </h3>
-              <p className="text-[var(--text)] leading-relaxed">
-                This application uses Google&apos;s Gemini AI. When you interact
-                with our AI features:
-              </p>
-              <ul className="list-disc pl-5 space-y-2 text-[var(--text)] opacity-80">
-                <li>
-                  Your conversations may be processed to improve responses
-                </li>
-                <li>
-                  No personally identifiable information is retained by the AI
-                </li>
-                <li>Conversations are not used to train the core AI model</li>
-                <li>You can opt out of AI features at any time</li>
-              </ul>
+              <div>
+                <h3 className="text-xl font-semibold mb-3 flex items-center">
+                  <svg className="w-5 h-5 mr-2 text-[var(--primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                  AI Processing (Gemini)
+                </h3>
+                <p className="text-[var(--text)] leading-relaxed mb-3">
+                  This application uses Google&apos;s Gemini AI. When you interact
+                  with our AI features:
+                </p>
+                <ul className="list-none space-y-3 text-[var(--text)] pl-5 mb-4">
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-[var(--primary)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Your conversations may be processed to improve responses</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-[var(--primary)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>No personally identifiable information is retained by the AI</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-[var(--primary)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Conversations are not used to train the core AI model</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-[var(--primary)] mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>You can opt out of AI features at any time</span>
+                  </li>
+                </ul>
+              </div>
 
-              <p className="text-sm text-[var(--text-secondary)] mt-6">
-                For more details about Gemini&apos;s data handling, please visit
-                Google&apos;s AI privacy policy.
-              </p>
+              <div className="bg-[var(--background-secondary)] p-4 rounded-lg mt-6 border border-[var(--border)]">
+                <p className="text-sm text-[var(--text-secondary)] italic flex items-center">
+                  <svg className="w-4 h-4 mr-2 text-[var(--primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  For more details about Gemini&apos;s data handling, please visit
+                  Google&apos;s AI privacy policy.
+                </p>
+              </div>
             </div>
           </div>
 
           {/* Footer */}
-          <div className="p-4 border-t border-[var(--border)] bg-[var(--background-secondary)] rounded-b-xl">
+          <div className="p-5 border-t border-[var(--border)] bg-[var(--background-secondary)] rounded-b-xl">
             <button
               onClick={onClose} // Use the passed onClose handler
-              className="w-full px-4 py-2 text-center text-[var(--text)] bg-[var(--card)] hover:bg-[var(--primary)] hover:text-white rounded-lg transition-colors duration-200"
+              className="w-full px-6 py-3 text-center font-medium bg-[var(--card)] hover:bg-[var(--primary)] hover:text-white rounded-lg transition-all duration-200 transform hover:scale-[1.02] shadow-sm hover:shadow-md"
             >
               Close
             </button>
           </div>
         </div>
+      </div>
       </div>
     </>
   );
