@@ -1,44 +1,275 @@
-name: Deploy to Hostinger VPS
+name: Deploy CF Travel Bot
 
 on:
   push:
-    branches:
-      - main # or your main branch name
+    branches: 
+      - develop      # Auto-deploy to staging
+      - main         # Auto-deploy to production
+  pull_request:
+    branches: 
+      - main         # Run tests on PR to main
+
+env:
+  NODE_VERSION: '18'
+  PM2_HOME: '/home/${{ secrets.SERVER_USER }}/.pm2'
 
 jobs:
-  deploy:
+  test:
+    name: Run Tests
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
-
+        uses: actions/checkout@v4
+        
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18' # or your Node.js version
-
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
       - name: Install dependencies
-        run: npm install
-
+        run: npm ci
+        
+      - name: Run linting
+        run: npm run lint || echo "Linting step completed with warnings"
+        
+      - name: Run tests
+        run: npm run test
+        
       - name: Build application
         run: npm run build
-
-      - name: Deploy to VPS
-        uses: appleboy/ssh-action@v0.1.10
+        
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
         with:
-          host: 46.202.177.230 # Replace with your VPS IP
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }} # Store your SSH private key as a secret in GitHub
-          script: |
-            # Create deployment directory if it doesn't exist
-            mkdir -p /var/www/pb-cline
+          name: build-files
+          path: dist/
+          retention-days: 7
 
-            # Copy the build output to the VPS
-            scp -r dist/* root@46.202.177.230:/var/www/pb-cline/
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    environment: staging
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build for staging
+        run: npm run build:staging
+        
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          
+      - name: Add server to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          
+      - name: Deploy to staging server
+        run: |
+          # Create deployment package
+          tar -czf cf-travel-bot-staging.tar.gz \
+            --exclude=node_modules \
+            --exclude=.git \
+            --exclude=.env.* \
+            --exclude=logs \
+            --exclude=screenshots \
+            --exclude=dev.log \
+            --exclude=proxy.log \
+            --exclude=server.log \
+            --exclude=vite.log \
+            .
+          
+          # Upload to server
+          scp cf-travel-bot-staging.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
+          
+          # Deploy on server
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            set -e
+            
+            # Create deployment directory
+            TIMESTAMP=$(date +%Y%m%d%H%M%S)
+            DEPLOY_DIR="/home/${{ secrets.SERVER_USER }}/apps/cf-travel-bot-staging"
+            RELEASE_DIR="$DEPLOY_DIR/releases/$TIMESTAMP"
+            
+            mkdir -p $RELEASE_DIR
+            
+            # Extract application
+            cd $RELEASE_DIR
+            tar -xzf /tmp/cf-travel-bot-staging.tar.gz
+            rm /tmp/cf-travel-bot-staging.tar.gz
+            
+            # Install production dependencies
+            npm ci --production
+            
+            # Copy environment file
+            cp $DEPLOY_DIR/shared/.env.staging .env
+            
+            # Build frontend
+            npm run build:staging
+            
+            # Update symlink atomically
+            ln -sfn $RELEASE_DIR $DEPLOY_DIR/current
+            
+            # Reload PM2 application
+            pm2 reload cf-travel-bot-staging || pm2 start ecosystem.config.cjs --only cf-travel-bot-staging
+            
+            # Cleanup old releases (keep last 3)
+            cd $DEPLOY_DIR/releases
+            ls -t | tail -n +4 | xargs -r rm -rf
+          EOF
+          
+      - name: Health check
+        run: |
+          sleep 10
+          for i in {1..5}; do
+            if curl -f -s http://${{ secrets.STAGING_URL }}/health; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Health check attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "Health check failed after 5 attempts"
+          exit 1
 
-            # Option A: If using Node backend, restart PM2
-            pm2 restart ecosystem.config.cjs
-
-            # Option B: If serving static files directly, reload Nginx
-            sudo nginx -t && sudo systemctl reload nginx
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build for production
+        run: npm run build:production
+        
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          
+      - name: Add server to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          
+      - name: Deploy to production server
+        run: |
+          # Create deployment package
+          tar -czf cf-travel-bot-production.tar.gz \
+            --exclude=node_modules \
+            --exclude=.git \
+            --exclude=.env.* \
+            --exclude=logs \
+            --exclude=screenshots \
+            --exclude=dev.log \
+            --exclude=proxy.log \
+            --exclude=server.log \
+            --exclude=vite.log \
+            .
+          
+          # Upload to server
+          scp cf-travel-bot-production.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
+          
+          # Deploy on server
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            set -e
+            
+            # Create deployment directory
+            TIMESTAMP=$(date +%Y%m%d%H%M%S)
+            DEPLOY_DIR="/home/${{ secrets.SERVER_USER }}/apps/cf-travel-bot"
+            RELEASE_DIR="$DEPLOY_DIR/releases/$TIMESTAMP"
+            
+            mkdir -p $RELEASE_DIR
+            
+            # Extract application
+            cd $RELEASE_DIR
+            tar -xzf /tmp/cf-travel-bot-production.tar.gz
+            rm /tmp/cf-travel-bot-production.tar.gz
+            
+            # Install production dependencies
+            npm ci --production
+            
+            # Copy environment file
+            cp $DEPLOY_DIR/shared/.env.production .env
+            
+            # Build frontend
+            npm run build:production
+            
+            # Create backup of current release
+            if [ -L "$DEPLOY_DIR/current" ]; then
+              BACKUP_DIR="$DEPLOY_DIR/backup/$(date +%Y%m%d%H%M%S)"
+              mkdir -p $BACKUP_DIR
+              cp -r $(readlink $DEPLOY_DIR/current)/* $BACKUP_DIR/
+            fi
+            
+            # Update symlink atomically
+            ln -sfn $RELEASE_DIR $DEPLOY_DIR/current
+            
+            # Reload PM2 application
+            pm2 reload cf-travel-bot-prod || pm2 start ecosystem.config.cjs --only cf-travel-bot-prod
+            
+            # Cleanup old releases (keep last 5)
+            cd $DEPLOY_DIR/releases
+            ls -t | tail -n +6 | xargs -r rm -rf
+            
+            # Cleanup old backups (keep last 3)
+            cd $DEPLOY_DIR/backup
+            ls -t | tail -n +4 | xargs -r rm -rf
+          EOF
+          
+      - name: Health check
+        run: |
+          sleep 15
+          for i in {1..10}; do
+            if curl -f -s http://${{ secrets.PRODUCTION_URL }}/health; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Health check attempt $i failed, retrying in 15s..."
+            sleep 15
+          done
+          echo "Health check failed - initiating rollback"
+          
+          # Rollback on health check failure
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            DEPLOY_DIR="/home/${{ secrets.SERVER_USER }}/apps/cf-travel-bot"
+            BACKUP_DIR=$(ls -t $DEPLOY_DIR/backup | head -n 1)
+            if [ -n "$BACKUP_DIR" ]; then
+              echo "Rolling back to $BACKUP_DIR"
+              rm -f $DEPLOY_DIR/current
+              ln -s $DEPLOY_DIR/backup/$BACKUP_DIR $DEPLOY_DIR/current
+              pm2 reload cf-travel-bot-prod
+              echo "Rollback completed"
+            fi
+          EOF
+          exit 1
+WORKFLOW_EOF < /dev/null

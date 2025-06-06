@@ -1,44 +1,31 @@
 module.exports = {
   apps: [
     {
-      name: 'main-server',
+      name: 'cf-travel-bot',
       script: './server/main.js',
       env: {
         NODE_ENV: 'production',
         PORT: 3000
       },
+      env_development: {
+        NODE_ENV: 'development',
+        PORT: 3000,
+        LOG_LEVEL: 'debug'
+      },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 3000
+        PORT: 3000,
+        LOG_LEVEL: 'warn'
       },
-      instances: 1,
+      instances: 'max',
+      exec_mode: 'cluster',
       autorestart: true,
       watch: false,
       max_memory_restart: '1G',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      error_file: '/var/log/pb-cline/main-error.log',
-      out_file: '/var/log/pb-cline/main-out.log',
-      time: true,
-      restart_delay: 4000
-    },
-    {
-      name: 'proxy-server',
-      script: './server/proxy.js',
-      env: {
-        NODE_ENV: 'production',
-        PORT: 3001
-      },
-      env_production: {
-        NODE_ENV: 'production',
-        PORT: 3001
-      },
-      instances: 1,
-      autorestart: true,
-      watch: false,
-      max_memory_restart: '1G',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      error_file: '/var/log/pb-cline/proxy-error.log',
-      out_file: '/var/log/pb-cline/proxy-out.log',
+      error_file: './logs/cf-travel-bot-error.log',
+      out_file: './logs/cf-travel-bot-out.log',
+      merge_logs: true,
       time: true,
       restart_delay: 4000
     }

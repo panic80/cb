@@ -1,9 +1,5 @@
 import React, { useState, useEffect, lazy, Suspense, startTransition } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
-import { sendToGemini } from './api/gemini.jsx';
-import { fetchTravelInstructions } from './api/travelInstructions';
-import { addQuestion } from './api/questionAnalysis';
-import LoadingScreen from './components/LoadingScreen';
 import './index.css';
 
 // Lazy load components
@@ -13,9 +9,9 @@ const MobileNavBar = lazy(() => import('./components/MobileNavBar'));
 const FAQPage = lazy(() => import('./pages/FAQPage'));
 const LandingPage = lazy(() => import('./pages/LandingPage.jsx'));
 const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
-const ModernChatPage = lazy(() => import('./pages/ModernChatPage'));
-const ImprovedChatDemo = lazy(() => import('./pages/ImprovedChatDemo'));
-const ThemeTestPage = lazy(() => import('./pages/ThemeTestPage'));
+const ChatPage = lazy(() => import('./pages/ChatPage'));
+const LoadingDebugPage = lazy(() => import('./pages/LoadingDebugPage'));
+const OPIPage = lazy(() => import('./pages/OPIPage'));
 
 // Prefetch components
 const prefetchComponent = (importFn) => {
@@ -28,8 +24,6 @@ const prefetchComponent = (importFn) => {
 function App() {
   // State management with batching
   const [state, setState] = useState({
-    isPreloading: true,
-    travelInstructions: null,
     input: '',
     theme: 'dark',
     sidebarCollapsed: false,
@@ -42,45 +36,17 @@ function App() {
     model: 'models/gemini-2.0-flash-001'
   });
 
-  const [messages, setMessages] = useState([
-    {
-      text: "Welcome! I'm here to help answer your questions about the Canadian Forces Temporary Duty Travel Instructions. What would you like to know?",
-      type: 'bot',
-      sources: [],
-      simplified: false
-    }
-  ]);
 
   // Prefetch components on mount
   useEffect(() => {
     const cleanupFns = [
       prefetchComponent(() => import('./components/Hero')),
-      prefetchComponent(() => import('./pages/ModernChatPage')),
+      prefetchComponent(() => import('./pages/ChatPage')),
       prefetchComponent(() => import('./components/MobileToggle'))
     ];
     return () => cleanupFns.forEach(cleanup => cleanup());
   }, []);
 
-  // Preload data
-  useEffect(() => {
-    const preloadData = async () => {
-      try {
-        const data = await fetchTravelInstructions();
-        startTransition(() => {
-          setState(prev => ({
-            ...prev,
-            travelInstructions: data,
-            isPreloading: false
-          }));
-        });
-      } catch (error) {
-        console.error('Error preloading travel instructions:', error);
-        setState(prev => ({ ...prev, isPreloading: false }));
-      }
-    };
-
-    preloadData();
-  }, []);
 
   // Theme and mobile updates
   useEffect(() => {
@@ -121,118 +87,37 @@ function App() {
     };
   }, []);
 
-  // Message handling with optimized state updates
-  const handleSend = async () => {
-    if (!state.input.trim()) return;
-
-    setState(prev => ({ ...prev, isLoading: true }));
-    const userMessage = { text: state.input, type: 'user' };
-    
-    startTransition(() => {
-      setMessages(prev => [...prev, userMessage]);
-      setState(prev => ({
-        ...prev,
-        input: '',
-        isFirstInteraction: false
-      }));
-    });
-
-    try {
-      if (!state.travelInstructions) {
-        throw new Error('Travel instructions not loaded yet. Please try again in a moment.');
-      }
-
-      // Track the question for FAQ analysis and trigger update
-      await addQuestion(state.input);
-      window.dispatchEvent(new Event('questionAdded'));
-
-      const response = await sendToGemini(
-        state.input,
-        state.isSimplified,
-        state.model,
-        state.travelInstructions
-      );
-      
-      startTransition(() => {
-        setMessages(prev => [
-          ...prev,
-          {
-            text: response.text,
-            type: 'bot',
-            sources: response.sources,
-            simplified: state.isSimplified
-          }
-        ]);
-      });
-    } catch (error) {
-      console.error('Chat Error:', {
-        message: error.message,
-        stack: error.stack
-      });
-      
-      startTransition(() => {
-        setMessages(prev => [
-          ...prev,
-          {
-            text: `Error: ${error.message}`,
-            type: 'bot',
-            sources: []
-          }
-        ]);
-      });
-    } finally {
-      setState(prev => ({ ...prev, isLoading: false }));
-    }
-  };
-
-  // Typing indicator with debounce
-  const handleTyping = () => {
-    if (state.isFirstInteraction) return;
-
-    if (!state.isTyping) {
-      setState(prev => ({ ...prev, isTyping: true }));
-    }
-    
-    if (state.typingTimeout) {
-      clearTimeout(state.typingTimeout);
-    }
-    
-    const timeout = setTimeout(() => {
-      setState(prev => ({ ...prev, isTyping: false }));
-    }, 1000);
-    
-    setState(prev => ({ ...prev, typingTimeout: timeout }));
-  };
 
   return (
     <Router>
       <div className="w-screen min-h-screen overflow-x-hidden overflow-y-auto m-0 p-0 max-w-[100vw]">
-        <Suspense fallback={<LoadingScreen />}>
+        <Suspense fallback={<div className="min-h-screen bg-background" />}>
           <Routes>
             <Route path="/" element={
-              <Suspense fallback={<LoadingScreen />}>
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
                 <LandingPage />
+              </Suspense>
+            } />
+            <Route path="/opi" element={
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
+                <OPIPage />
               </Suspense>
             } />
             <Route
               path="/chat"
               element={
-                state.isPreloading ? (
-                  <LoadingScreen />
-                ) : (
-                  <Suspense fallback={<LoadingScreen />}>
-                    <ModernChatPage />
-                  </Suspense>
-                )
+                <Suspense fallback={<div className="min-h-screen bg-background" />}>
+                  <ChatPage />
+                </Suspense>
               }
             />
             <Route path="/privacy" element={
-                          <Suspense fallback={<LoadingScreen />}>
+                          <Suspense fallback={<div className="min-h-screen bg-background" />}>
                             <PrivacyPage />
                           </Suspense>
                         } />
             <Route path="/faq" element={
-              <Suspense fallback={<LoadingScreen />}>
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
                 <FAQPage />
               </Suspense>
             } />
@@ -246,14 +131,9 @@ function App() {
                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Coming Soon</h1>
               </div>
             } />
-            <Route path="/improved-chat" element={
-              <Suspense fallback={<LoadingScreen />}>
-                <ImprovedChatDemo />
-              </Suspense>
-            } />
-            <Route path="/theme-test" element={
-              <Suspense fallback={<LoadingScreen />}>
-                <ThemeTestPage />
+            <Route path="/loading-debug" element={
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
+                <LoadingDebugPage />
               </Suspense>
             } />
           </Routes>
