@@ -1,0 +1,65 @@
+# Dependencies
+node_modules
+npm-debug.log*
+
+# Build outputs
+dist
+
+# Environment files (security)
+.env
+.env.*
+\!.env.example
+
+# Logs
+logs
+*.log
+dev.log
+proxy.log
+server.log
+vite.log
+
+# Development files
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# CI/CD
+.github
+
+# Testing
+coverage
+.nyc_output
+screenshots
+
+# Temporary files
+*.tmp
+*.temp
+
+# Documentation
+*.md
+\!README.md
+
+# Scripts (not needed in container)
+scripts/
+
+# Backup files
+*.backup
+*.bak
+
+# PM2
+ecosystem.config.cjs
+DOCKERIGNORE_EOF < /dev/null

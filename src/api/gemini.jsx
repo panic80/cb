@@ -112,34 +112,21 @@ const handleApiError = (error) => {
 };
 
 /**
- * Call Gemini API via proxy endpoint in development
+ * Call consolidated Gemini API endpoint
  * @param {string} message - User message
  * @param {boolean} isSimplified - Whether to show simplified response
  * @param {string} model - The model to use
  * @param {string} instructions - Context for the AI
- * @param {boolean} secureMode - Whether to use secure API key handling
  * @param {boolean} enableRetry - Whether to enable retry logic
  * @returns {Promise<Object>} Response with text and sources
  */
-export const callGeminiViaProxy = async (
+export const callGeminiAPI = async (
   message, 
   isSimplified, 
   model, 
   instructions,
-  secureMode = false,
   enableRetry = true
 ) => {
-  // Validate API key
-  console.log('[DEBUG] Validating API key:', API_KEY ? 'Present' : 'Missing');
-  if (!validateApiKey(API_KEY)) {
-    console.error('[DEBUG] API key validation failed');
-    throw new ChatError(ChatErrorType.API_KEY, {
-      message: 'Missing or invalid Gemini API key',
-      details: 'Please check that VITE_GEMINI_API_KEY is properly set in your .env file'
-    });
-  }
-  console.log('[DEBUG] API key validation passed');
-  
   const promptText = createPrompt(message, isSimplified, instructions);
   const modelName = "gemini-2.0-flash";
   const requestBody = {
@@ -148,29 +135,19 @@ export const callGeminiViaProxy = async (
     generationConfig: getGenerationConfig()
   };
   
-  // In secure mode, pass API key in request headers instead of URL
-  let url, headers;
-  if (secureMode) {
-    url = '/api/gemini/generateContent';
-    headers = {
-      "Content-Type": "application/json",
-      "X-API-KEY": API_KEY
-    };
-  } else {
-    url = `/api/gemini/generateContent?key=${API_KEY}`;
-    headers = {
-      "Content-Type": "application/json"
-    };
-  }
+  // Use consolidated API endpoint
+  const url = '/api/gemini/generateContent';
+  const headers = {
+    "Content-Type": "application/json"
+  };
 
   let retries = 0;
   
   while (true) {
     try {
-      console.log('[DEBUG] Sending request to Gemini API:', {
+      console.log('[DEBUG] Sending request to consolidated Gemini API:', {
         url,
-        method: "POST",
-        headers: { ...headers, "X-API-KEY": "[REDACTED]" }
+        method: "POST"
       });
       
       const response = await fetch(url, {
@@ -235,13 +212,15 @@ export const callGeminiViaProxy = async (
         continue;
       }
       
-      console.error('Proxy API error:', error);
+      console.error('Consolidated API error:', error);
       throw handleApiError(error);
     }
   }
 };
 
-// We use the callGeminiViaProxy method exclusively for simplicity and consistency
+// Backward compatibility aliases
+export const callGeminiViaProxy = callGeminiAPI;
+export const callGeminiViaSDK = callGeminiAPI;
 
 /**
  * Default fallback response when all API methods fail
@@ -281,12 +260,12 @@ export const sendToGemini = async (
       throw new Error('Travel instructions not loaded');
     }
 
-    // Use proxy method for both development and production
+    // Use consolidated API method for both development and production
     // This simplifies our code and ensures consistent behavior
     try {
-      return await callGeminiViaProxy(message, isSimplified, model, preloadedInstructions, true);
+      return await callGeminiAPI(message, isSimplified, model, preloadedInstructions, true);
     } catch (error) {
-      console.error('Gemini API Error via proxy:', error);
+      console.error('Gemini API Error via consolidated server:', error);
       throw error;
     }
 

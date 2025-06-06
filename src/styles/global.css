@@ -7,6 +7,7 @@
     --background: #ffffff;
     --background-secondary: #f8fafc;
     --card: #ffffff;
+    --card-rgb: 255, 255, 255;
     --text: #0f172a;
     --text-secondary: #475569;
     --primary: #2563eb;
@@ -26,6 +27,7 @@
     --background: #0f172a;
     --background-secondary: #1e293b;
     --card: #1e293b;
+    --card-rgb: 30, 41, 59;
     --text: #f8fafc;
     --text-secondary: #94a3b8;
     --primary: #60a5fa;
