@@ -1,7 +1,7 @@
 import { test, expect } from 'vitest'
 import axios from 'axios'
 
-const TEST_PORT = 3001
+const TEST_PORT = 3000
 const BASE_URL = `http://localhost:${TEST_PORT}/api/test-url-encoding`
 
 test('should parse complex URL-encoded body', async () => {
