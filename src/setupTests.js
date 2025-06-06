@@ -1,28 +1,19 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 
-// Mock the indexedDB
-const mockIndexedDB = {
-  open: vi.fn().mockReturnValue({
-    onupgradeneeded: null,
-    onsuccess: null,
-    onerror: null
-  })
-};
+// Basic IndexedDB mock (tests will override with their own detailed mocks)
+if (!global.indexedDB) {
+  global.indexedDB = {
+    open: vi.fn(),
+    deleteDatabase: vi.fn(),
+    cmp: vi.fn()
+  };
+}
 
-// Mock the globalThis.indexedDB
-Object.defineProperty(window, 'indexedDB', {
-  value: mockIndexedDB,
-  writable: true,
-});
-
-// Mock fetch API
-global.fetch = vi.fn().mockResolvedValue({
-  ok: true,
-  json: vi.fn().mockResolvedValue({}),
-  text: vi.fn().mockResolvedValue(''),
-  clone: vi.fn().mockImplementation(function() { return this; })
-});
+// Mock fetch only if not already mocked (tests will set their own)
+if (!global.fetch) {
+  global.fetch = vi.fn();
+}
 
 // Mock browser APIs that are not available in the test environment
 global.ResizeObserver = vi.fn().mockImplementation(() => ({
