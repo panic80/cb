@@ -100,11 +100,19 @@ jobs:
             --warning=no-file-changed \
             .
           
-          # Test SSH connection
-          ssh -o BatchMode=yes -o ConnectTimeout=10 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'SSH connection successful'"
+          # Test SSH connection with verbose output
+          echo "Testing SSH connection to ${{ secrets.SERVER_HOST }}..."
+          ssh -v -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'SSH connection successful'" || {
+            echo "SSH connection failed. Checking SSH agent and keys..."
+            ssh-add -l
+            echo "Trying SSH with more verbose output..."
+            ssh -vvv -o BatchMode=yes -o ConnectTimeout=10 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'test'" || true
+            exit 1
+          }
           
           # Upload to server
-          scp -o BatchMode=yes -o ConnectTimeout=30 cf-travel-bot-staging.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
+          echo "Uploading deployment package..."
+          scp -v -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=no cf-travel-bot-staging.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
           
           # Deploy on server
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
@@ -206,11 +214,19 @@ jobs:
             --warning=no-file-changed \
             .
           
-          # Test SSH connection
-          ssh -o BatchMode=yes -o ConnectTimeout=10 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'SSH connection successful'"
+          # Test SSH connection with verbose output
+          echo "Testing SSH connection to ${{ secrets.SERVER_HOST }}..."
+          ssh -v -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'SSH connection successful'" || {
+            echo "SSH connection failed. Checking SSH agent and keys..."
+            ssh-add -l
+            echo "Trying SSH with more verbose output..."
+            ssh -vvv -o BatchMode=yes -o ConnectTimeout=10 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'test'" || true
+            exit 1
+          }
           
           # Upload to server
-          scp -o BatchMode=yes -o ConnectTimeout=30 cf-travel-bot-production.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
+          echo "Uploading deployment package..."
+          scp -v -o BatchMode=yes -o ConnectTimeout=30 -o StrictHostKeyChecking=no cf-travel-bot-production.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
           
           # Deploy on server
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
