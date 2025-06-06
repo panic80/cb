@@ -130,8 +130,8 @@ jobs:
             tar -xzf /tmp/cf-travel-bot-staging.tar.gz
             rm /tmp/cf-travel-bot-staging.tar.gz
             
-            # Install production dependencies
-            npm ci --production
+            # Install dependencies (including dev dependencies for build)
+            npm ci
             
             # Copy environment file
             cp $DEPLOY_DIR/shared/.env.staging .env
@@ -284,8 +284,8 @@ jobs:
             tar -xzf /tmp/cf-travel-bot-production.tar.gz
             rm /tmp/cf-travel-bot-production.tar.gz
             
-            # Install production dependencies
-            npm ci --production
+            # Install dependencies (including dev dependencies for build)
+            npm ci
             
             # Copy environment file
             cp $DEPLOY_DIR/shared/.env.production .env
