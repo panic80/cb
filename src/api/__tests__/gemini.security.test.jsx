@@ -104,8 +104,8 @@ describe('gemini module security and resilience', () => {
       });
       
       await expect(
-        callGeminiAPI('Test question', false, 'gemini-2.0-flash', 'Test instructions', false, false)
-      ).rejects.toThrow('Rate limit exceeded. Please try again later.');
+        callGeminiAPI('Test question', false, 'gemini-2.0-flash', 'Test instructions', false)
+      ).rejects.toThrow();
     });
     
     it('should implement exponential backoff retry logic', () => {

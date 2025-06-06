@@ -284,10 +284,11 @@ export const sendToGemini = async (
     
     // Transform any remaining errors into ChatErrors
     if (!(error instanceof ChatError)) {
-      throw new ChatError(ChatErrorType.SERVICE, {
-        message: 'Could not connect to Gemini API after multiple attempts',
+      const chatError = new ChatError(ChatErrorType.SERVICE, {
+        message: 'The service is temporarily unavailable.',
         originalError: error
       });
+      throw chatError;
     }
     
     throw error;
