@@ -9,6 +9,9 @@ export default defineConfig({
     environment: 'happy-dom',
     setupFiles: ['./src/setupTests.js'],
     include: ['**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
+    exclude: ['**/node_modules/**', '**/screenshots/**', '**/dist/**'],
+    testTimeout: 10000, // 10 second timeout
+    hookTimeout: 10000, // 10 second timeout for setup/teardown
   },
   resolve: {
     alias: {

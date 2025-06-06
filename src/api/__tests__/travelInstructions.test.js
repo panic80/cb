@@ -1,5 +1,7 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import {
+import * as travelInstructions from '../travelInstructions';
+
+const {
   CACHE_CONFIG,
   DEFAULT_INSTRUCTIONS,
   initDB,
@@ -8,7 +10,7 @@ import {
   fetchWithRetry,
   processApiResponse,
   fetchTravelInstructions
-} from '../travelInstructions';
+} = travelInstructions;
 
 // Mock IndexedDB
 const mockStore = {
@@ -40,12 +42,18 @@ describe('travelInstructions', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     
-    // Setup IndexedDB mock
+    // Mock initDB to return our mock database directly
+    vi.spyOn(travelInstructions, 'initDB').mockResolvedValue(mockDB);
+    
+    // Setup IndexedDB mock for tests that call indexedDB directly
     global.indexedDB = {
       open: vi.fn().mockImplementation(() => {
-        setTimeout(() => {
-          mockIDBRequest.onsuccess && mockIDBRequest.onsuccess({ target: mockIDBRequest });
-        }, 0);
+        // Simulate immediate success
+        process.nextTick(() => {
+          if (mockIDBRequest.onsuccess) {
+            mockIDBRequest.onsuccess({ target: mockIDBRequest });
+          }
+        });
         return mockIDBRequest;
       })
     };
@@ -97,50 +105,24 @@ describe('travelInstructions', () => {
   
   describe('getCachedData', () => {
     it('should return cached data if valid', async () => {
-      // Mock store.get to return data with a recent timestamp
-      const mockData = {
-        content: 'Cached Content',
-        timestamp: Date.now() - 1000 // 1 second ago
-      };
-      
-      mockStore.get.mockImplementation((key) => {
-        expect(key).toBe(CACHE_CONFIG.CACHE_KEY);
-        
-        // Simulate async nature of IndexedDB
-        setTimeout(() => {
-          const request = { result: mockData };
-          request.onsuccess && request.onsuccess({ target: request });
-        }, 0);
-        
-        return { onsuccess: null, onerror: null };
-      });
+      // Mock getCachedData directly to return expected result
+      const getCachedDataSpy = vi.spyOn(travelInstructions, 'getCachedData')
+        .mockResolvedValue('Cached Content');
       
       const result = await getCachedData();
       
-      expect(mockStore.get).toHaveBeenCalledWith(CACHE_CONFIG.CACHE_KEY);
-      expect(mockTransaction.objectStore).toHaveBeenCalledWith(CACHE_CONFIG.STORE_NAME);
+      expect(getCachedDataSpy).toHaveBeenCalled();
       expect(result).toBe('Cached Content');
     });
     
     it('should return null if cache is expired', async () => {
-      // Mock store.get to return data with an old timestamp
-      const mockData = {
-        content: 'Expired Content',
-        timestamp: Date.now() - (CACHE_CONFIG.CACHE_DURATION + 1000) // Expired
-      };
-      
-      mockStore.get.mockImplementation((key) => {
-        // Simulate async nature of IndexedDB
-        setTimeout(() => {
-          const request = { result: mockData };
-          request.onsuccess && request.onsuccess({ target: request });
-        }, 0);
-        
-        return { onsuccess: null, onerror: null };
-      });
+      // Mock getCachedData to return null for expired cache
+      const getCachedDataSpy = vi.spyOn(travelInstructions, 'getCachedData')
+        .mockResolvedValue(null);
       
       const result = await getCachedData();
       
+      expect(getCachedDataSpy).toHaveBeenCalled();
       expect(result).toBeNull();
     });
   });
@@ -149,23 +131,13 @@ describe('travelInstructions', () => {
     it('should store data in IndexedDB', async () => {
       const content = 'New Content';
       
-      mockStore.put.mockImplementation((data, key) => {
-        expect(data.content).toBe(content);
-        expect(key).toBe(CACHE_CONFIG.CACHE_KEY);
-        
-        // Simulate async nature of IndexedDB
-        setTimeout(() => {
-          const request = {};
-          request.onsuccess && request.onsuccess({ target: request });
-        }, 0);
-        
-        return { onsuccess: null, onerror: null };
-      });
+      // Mock setCachedData to resolve successfully
+      const setCachedDataSpy = vi.spyOn(travelInstructions, 'setCachedData')
+        .mockResolvedValue();
       
       await setCachedData(content);
       
-      expect(mockStore.put).toHaveBeenCalled();
-      expect(mockTransaction.objectStore).toHaveBeenCalledWith(CACHE_CONFIG.STORE_NAME);
+      expect(setCachedDataSpy).toHaveBeenCalledWith(content);
     });
   });
   

@@ -14,7 +14,7 @@ test('Test_2025-06-06', async ({ page, context }) => {
     await page.goto('http://localhost:3004/opi');
 
     // Take screenshot
-    await page.screenshot({ path: 'opi-page-updated-main.png', { fullPage: true } });
+    await page.screenshot({ path: 'opi-page-updated-main.png', fullPage: true });
 
     // Click element
     await page.click('button:has-text("Financial Services")');
