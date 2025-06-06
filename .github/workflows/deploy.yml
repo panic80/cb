@@ -214,13 +214,23 @@ jobs:
             --warning=no-file-changed \
             .
           
-          # Test SSH connection with verbose output
-          echo "Testing SSH connection to ${{ secrets.SERVER_HOST }}..."
-          ssh -v -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'SSH connection successful'" || {
-            echo "SSH connection failed. Checking SSH agent and keys..."
-            ssh-add -l
-            echo "Trying SSH with more verbose output..."
-            ssh -vvv -o BatchMode=yes -o ConnectTimeout=10 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'test'" || true
+          # Debug environment and secrets
+          echo "=== DEBUG INFO ==="
+          echo "SERVER_HOST exists: ${{ secrets.SERVER_HOST != '' }}"
+          echo "SERVER_USER exists: ${{ secrets.SERVER_USER != '' }}"
+          echo "SSH_PRIVATE_KEY exists: ${{ secrets.SSH_PRIVATE_KEY != '' }}"
+          echo "SSH Agent Status:"
+          ssh-add -l || echo "No keys in SSH agent"
+          echo "==================="
+          
+          # Test basic connectivity first
+          echo "Testing basic connectivity to server..."
+          timeout 10 bash -c "</dev/tcp/${{ secrets.SERVER_HOST }}/22" && echo "Port 22 is open" || echo "Port 22 is closed or filtered"
+          
+          # Test SSH connection
+          echo "Testing SSH connection..."
+          ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'SSH connection successful'" 2>&1 || {
+            echo "SSH connection failed with exit code $?"
             exit 1
           }
           
