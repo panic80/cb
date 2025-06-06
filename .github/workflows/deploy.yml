@@ -100,8 +100,11 @@ jobs:
             --warning=no-file-changed \
             .
           
+          # Test SSH connection
+          ssh -o BatchMode=yes -o ConnectTimeout=10 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'SSH connection successful'"
+          
           # Upload to server
-          scp cf-travel-bot-staging.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
+          scp -o BatchMode=yes -o ConnectTimeout=30 cf-travel-bot-staging.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
           
           # Deploy on server
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
@@ -203,8 +206,11 @@ jobs:
             --warning=no-file-changed \
             .
           
+          # Test SSH connection
+          ssh -o BatchMode=yes -o ConnectTimeout=10 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'SSH connection successful'"
+          
           # Upload to server
-          scp cf-travel-bot-production.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
+          scp -o BatchMode=yes -o ConnectTimeout=30 cf-travel-bot-production.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
           
           # Deploy on server
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
