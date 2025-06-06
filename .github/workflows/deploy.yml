@@ -230,22 +230,39 @@ jobs:
 
       - name: Deploy to production server  
         run: |
+          set -ex  # Enable exit on error and command echoing
           echo "Starting deployment..."
+          
           # Create deployment package
+          echo "Creating tar package..."
+          tar --version
+          echo "Current directory contents:"
+          ls -la
+          
+          # Use simpler tar command first
           tar -czf cf-travel-bot-production.tar.gz \
             --exclude=node_modules \
             --exclude=.git \
-            --exclude=.env.* \
             --exclude=logs \
             --exclude=screenshots \
-            --exclude=dev.log \
-            --exclude=proxy.log \
-            --exclude=server.log \
-            --exclude=vite.log \
+            --exclude='*.log' \
             --exclude=cf-travel-bot-production.tar.gz \
-            --warning=no-file-changed \
-            .
+            . 2>&1 || {
+            echo "Tar command failed with exit code $?"
+            echo "Trying basic tar without excludes..."
+            tar -czf cf-travel-bot-production.tar.gz . 2>&1 || {
+              echo "Even basic tar failed"
+              exit 1
+            }
+          }
           echo "Package created successfully"
+          
+          # Verify package was created
+          if [ ! -f cf-travel-bot-production.tar.gz ]; then
+            echo "ERROR: Package file was not created"
+            exit 1
+          fi
+          echo "Package size: $(du -h cf-travel-bot-production.tar.gz)"
           
           # Upload to server
           echo "Uploading deployment package..."
