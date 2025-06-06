@@ -4,6 +4,54 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Policy Assistant</title>
+    <style>
+      /* Prevent FOUT (Flash of Unstyled Text) */
+      .fonts-loading {
+        visibility: hidden;
+      }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" media="print" onload="this.media='all'">
+    <noscript>
+      <style>
+        .fonts-loading {
+          visibility: visible;
+        }
+      </style>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    </noscript>
+    <script>
+      // Add class to body to hide content during font loading
+      document.documentElement.classList.add('fonts-loading');
+      
+      // Define the font to observe
+      const fontToObserve = new FontFace('Inter', 'url(https://fonts.gstatic.com/s/inter/v12/UcC73FwrK3iLTeHuS_fvQtMwCp50KnMa1ZL7.woff2)', {
+        weight: '400',
+        style: 'normal',
+        display: 'swap'
+      });
+      
+      // Function to make content visible
+      function showContent() {
+        document.documentElement.classList.remove('fonts-loading');
+      }
+      
+      // Try to detect when fonts are loaded using multiple methods
+      if (document.fonts && document.fonts.ready) {
+        Promise.all([
+          document.fonts.ready,
+          fontToObserve.load().then(() => document.fonts.add(fontToObserve))
+        ]).then(showContent).catch(showContent);
+      } else {
+        // Fallback for browsers that don't support document.fonts
+        window.addEventListener('load', showContent);
+      }
+      
+      // Safety timeout to ensure content becomes visible even if font loading fails
+      setTimeout(showContent, 1000); // Reduced from 2000ms to 1000ms for better UX
+    </script>
   </head>
   <body>
     <div id="root"></div>

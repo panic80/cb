@@ -1,4 +1,5 @@
 import { formatText } from '../utils/chatUtils';
+import { ChatError, ChatErrorType } from '../utils/chatErrors';
 
 // Cache configuration
 export const CACHE_CONFIG = {
@@ -126,11 +127,26 @@ export const fetchWithRetry = async (apiUrl, maxRetries = 3) => {
       
       if (response.ok) return response;
       
+      // Handle 404 errors immediately without retry
+      if (response.status === 404) {
+        throw new ChatError(
+          ChatErrorType.ENDPOINT_NOT_FOUND,
+          { status: response.status, url: apiUrl }
+        );
+      }
+      
       console.warn(`Retry attempt ${maxRetries - retries + 1}: Server responded with ${response.status}`);
       retries--;
       
       if (retries === 0) {
-        throw new Error(`Server responded with ${response.status} after multiple attempts`);
+        if (response.status >= 500) {
+          throw new ChatError(ChatErrorType.SERVICE, { status: response.status });
+        } else {
+          throw new ChatError(ChatErrorType.UNKNOWN, {
+            status: response.status,
+            message: `Server responded with ${response.status} after multiple attempts`
+          });
+        }
       }
       
       // Wait before retrying with exponential backoff
@@ -139,7 +155,18 @@ export const fetchWithRetry = async (apiUrl, maxRetries = 3) => {
       console.error(`Fetch error (attempt ${maxRetries - retries + 1}):`, error);
       retries--;
       
-      if (retries === 0) throw error;
+      if (retries === 0) {
+        if (error instanceof ChatError) {
+          throw error; // Pass through our custom error types
+        }
+        
+        // Convert other errors to appropriate ChatError types
+        if (error.name === 'TypeError' || error.message.includes('network')) {
+          throw new ChatError(ChatErrorType.NETWORK, error);
+        }
+        
+        throw new ChatError(ChatErrorType.UNKNOWN, error);
+      }
       
       await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, maxRetries - retries)));
     }
@@ -237,8 +264,20 @@ export const fetchTravelInstructions = async () => {
         await setCachedData(instructions);
         
         return instructions;
-      } catch (fetchError) {
-        console.error('Error fetching from API:', fetchError);
+      } catch (error) {
+        console.error('Error fetching from API:', error);
+        
+        // Add specific handling for endpoint not found
+        if (error instanceof ChatError && error.type === ChatErrorType.ENDPOINT_NOT_FOUND) {
+          console.warn('Travel instructions API endpoint not found. Ensure the server is running on port 3003');
+        }
+        
+        // Log detailed error info for all chat errors
+        if (error instanceof ChatError) {
+          const { title, message, suggestion } = error.getErrorMessage();
+          console.error(`${title}: ${message}\n${suggestion}`);
+        }
+        
         return DEFAULT_INSTRUCTIONS;
       }
     })();

@@ -1,7 +1,8 @@
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { fetchTravelInstructions } from './travelInstructions';
 import { parseApiResponse } from '../utils/chatUtils';
+import { ChatError, ChatErrorType } from '../utils/chatErrors';
 
-// Use environment variable for API key
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const MAX_RETRIES = 2;
 const RETRY_DELAY = 1000; // 1 second
@@ -69,59 +70,63 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
  * @returns {Error} Processed error with standardized message
  */
 const handleApiError = (error) => {
-  // Check for rate limiting errors
-  if (error.message.includes('quota') || 
+  // If it's already a ChatError, return it
+  if (error instanceof ChatError) {
+    return error;
+  }
+
+  // API key validation errors
+  if (error.message.includes('API key') || error.message.includes('authentication')) {
+    return new ChatError(ChatErrorType.API_KEY, {
+      message: error.message,
+      details: 'Check VITE_GEMINI_API_KEY in .env file'
+    });
+  }
+
+  // Rate limiting errors
+  if (error.message.includes('quota') ||
       error.message.includes('rate limit') ||
       error.message.includes('429')) {
-    return new Error('Rate limit exceeded. Please try again later.');
+    return new ChatError(ChatErrorType.RATE_LIMIT, error);
   }
   
   // Network errors
-  if (error.message.includes('Network') || 
+  if (error.message.includes('Network') ||
       error.message.includes('ECONNREFUSED') ||
       error.message.includes('fetch')) {
-    return new Error('Network error while calling Gemini API. Please check your connection.');
+    return new ChatError(ChatErrorType.NETWORK, error);
   }
   
-  // Invalid JSON responses
-  if (error instanceof SyntaxError || error.message.includes('JSON')) {
-    return new Error('Invalid JSON response from Gemini API');
+  // Invalid responses
+  if (error instanceof SyntaxError ||
+      error.message.includes('JSON') ||
+      error.message.includes('Invalid response format')) {
+    return new ChatError(ChatErrorType.SERVICE, {
+      message: 'Invalid API response format',
+      details: error.message
+    });
   }
   
-  // Malformed API response
-  if (error.message.includes('Invalid response format')) {
-    return new Error('The API returned a response in an unexpected format');
-  }
-  
-  // General API error with enhanced message
-  if (error.message.includes('Gemini API Error')) {
-    return error;
-  }
-  
-  return new Error(`Gemini API Error: ${error.message}`);
+  // Unknown errors
+  return new ChatError(ChatErrorType.UNKNOWN, error);
 };
 
 /**
- * Call Gemini API through the proxy endpoint
+ * Call consolidated Gemini API endpoint
  * @param {string} message - User message
  * @param {boolean} isSimplified - Whether to show simplified response
  * @param {string} model - The model to use
  * @param {string} instructions - Context for the AI
- * @param {boolean} secureMode - Whether to use secure API key handling (defaults to true)
  * @param {boolean} enableRetry - Whether to enable retry logic
  * @returns {Promise<Object>} Response with text and sources
  */
 export const callGeminiAPI = async (
-  message,
-  isSimplified,
+  message, 
+  isSimplified, 
+  model, 
   instructions,
   enableRetry = true
 ) => {
-  // Validate API key
-  if (!validateApiKey(API_KEY)) {
-    throw new Error('API key is missing or invalid');
-  }
-  
   const promptText = createPrompt(message, isSimplified, instructions);
   const modelName = "gemini-2.0-flash";
   const requestBody = {
@@ -130,24 +135,35 @@ export const callGeminiAPI = async (
     generationConfig: getGenerationConfig()
   };
   
-  let url = '/api/gemini/generateContent';
-  let headers = {
-    "Content-Type": "application/json",
-    "X-API-KEY": API_KEY
+  // Use consolidated API endpoint
+  const url = '/api/gemini/generateContent';
+  const headers = {
+    "Content-Type": "application/json"
   };
 
   let retries = 0;
   
   while (true) {
     try {
+      console.log('[DEBUG] Sending request to consolidated Gemini API:', {
+        url,
+        method: "POST"
+      });
+      
       const response = await fetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(requestBody)
       });
 
+      console.log('[DEBUG] Received response:', {
+        status: response.status,
+        statusText: response.statusText
+      });
+
       // Handle different error status codes
       if (!response.ok) {
+        console.error('[DEBUG] Response not OK:', response.status, response.statusText);
         // Special handling for rate limiting
         if (response.status === 429) {
           throw new Error('Rate limit exceeded. Please try again later.');
@@ -166,13 +182,19 @@ export const callGeminiAPI = async (
 
       try {
         const data = await response.json();
-        console.log('Gemini API Response (Proxy):', JSON.stringify(data, null, 2));
+        console.log('[DEBUG] Parsing response data:', {
+          hasData: !!data,
+          hasCandidates: !!data?.candidates,
+          candidateCount: data?.candidates?.length
+        });
 
         if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+          console.error('[DEBUG] Invalid response structure:', JSON.stringify(data, null, 2));
           throw new Error('Invalid response format from Gemini API');
         }
 
         const text = data.candidates[0].content.parts[0].text;
+        console.log('[DEBUG] Successfully parsed response text:', text.substring(0, 50) + '...');
         return parseApiResponse(text, isSimplified);
       } catch (parseError) {
         if (parseError instanceof SyntaxError) {
@@ -190,11 +212,15 @@ export const callGeminiAPI = async (
         continue;
       }
       
-      console.error('Proxy API error:', error);
+      console.error('Consolidated API error:', error);
       throw handleApiError(error);
     }
   }
 };
+
+// Backward compatibility aliases
+export const callGeminiViaProxy = callGeminiAPI;
+export const callGeminiViaSDK = callGeminiAPI;
 
 /**
  * Default fallback response when all API methods fail
@@ -213,16 +239,13 @@ export const getFallbackResponse = (isSimplified) => ({
 });
 
 /**
- * Send message to Gemini API using the unified proxy endpoint
+ * Send message to Gemini API
  * @param {string} message - User message
  * @param {boolean} isSimplified - Whether to show simplified response
- * @param {string} model - The model to use (defaults to gemini-2.0-flash)
+ * @param {string} model - The model to use
  * @param {string} preloadedInstructions - Preloaded travel instructions
  * @param {boolean} useFallback - Whether to return fallback content on error
  * @returns {Promise<Object>} Response with text and sources
- *
- * This function uses a unified approach through our proxy endpoint for all environments,
- * providing consistent error handling, monitoring, and security across development and production.
  */
 export const sendToGemini = async (
   message,
@@ -237,11 +260,18 @@ export const sendToGemini = async (
       throw new Error('Travel instructions not loaded');
     }
 
-    // Always use the proxy endpoint for consistent handling across environments
-    return await callGeminiAPI(message, isSimplified, preloadedInstructions);
+    // Use consolidated API method for both development and production
+    // This simplifies our code and ensures consistent behavior
+    try {
+      return await callGeminiAPI(message, isSimplified, model, preloadedInstructions, true);
+    } catch (error) {
+      console.error('Gemini API Error via consolidated server:', error);
+      throw error;
+    }
 
   } catch (error) {
     console.error('Gemini API Error:', {
+      type: error instanceof ChatError ? error.type : 'UNKNOWN',
       message: error.message,
       stack: error.stack
     });
@@ -252,6 +282,14 @@ export const sendToGemini = async (
       return getFallbackResponse(isSimplified);
     }
     
-    throw new Error('Could not connect to Gemini API after multiple attempts');
+    // Transform any remaining errors into ChatErrors
+    if (!(error instanceof ChatError)) {
+      throw new ChatError(ChatErrorType.SERVICE, {
+        message: 'Could not connect to Gemini API after multiple attempts',
+        originalError: error
+      });
+    }
+    
+    throw error;
   }
 };

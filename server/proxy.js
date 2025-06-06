@@ -2,6 +2,12 @@ import express from 'express';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { loggingMiddleware } from './middleware/logging.js';
+import chatLogger from './services/logger.js';
+import dotenv from 'dotenv';
+
+// Load environment variables from .env file
+dotenv.config();
 const app = express();
 
 // Parse JSON request bodies with increased limit
@@ -11,6 +17,9 @@ app.use(express.urlencoded({
   limit: '10mb',
   parameterLimit: 10000
 }));
+
+// Add logging middleware
+app.use(loggingMiddleware);
 
 // Helper function to decode URL encoded values in both GET and POST requests
 const decodeUrlParams = (params) => {
@@ -102,7 +111,7 @@ const processContent = (html) => {
     
     console.log(`Raw extracted text length: ${mainContent.length} characters`);
     
-    // Clean and format content while preserving newlines and semantic structure
+    // Clean and format content while preserving newlines, semantic structure, and timing details
     const processedText = mainContent
       // Normalize whitespace
       .replace(/\s+/g, ' ')
@@ -112,6 +121,10 @@ const processContent = (html) => {
       .replace(/(SECTION|Chapter|CHAPTER|Part|PART)\s+(\d+)/gi, '\n$1 $2')
       // Fix camelCase to space separated
       .replace(/([a-z])([A-Z])/g, '$1 $2')
+      // Preserve meal timing windows
+      .replace(/([Ll]unch).+?(\d{1,2}[:\.]\d{2}).+?(\d{1,2}[:\.]\d{2})/g, (match, meal, start, end) => {
+        return `${meal} may be claimed when duty travel extends through the period of ${start} to ${end}`;
+      })
       // Ensure sentence boundaries have newlines
       .replace(/([.!?])\s+/g, '$1\n')
       // Final trim
@@ -227,17 +240,29 @@ app.post('/api/gemini/generateContent', rateLimiter, async (req, res) => {
   try {
     console.log('Received Gemini API request');
     
-    // Get API key from header or query param (preferring header for security)
-    const apiKey = req.headers['x-api-key'] || req.query.key;
+    // Get API key from environment variable
+    const apiKey = process.env.VITE_GEMINI_API_KEY;
+    console.log('[DEBUG] API Key Check:', {
+      present: !!apiKey,
+      length: apiKey?.length || 0,
+      startsWithAIza: apiKey?.startsWith('AIza') || false
+    });
     
     // Validate API key
     if (!apiKey) {
-      return res.status(400).json({ error: 'API key is required' });
+      console.error('[DEBUG] No API key found in environment variables');
+      return res.status(500).json({ error: 'API key not found in environment variables' });
     }
     
     if (!validateApiKey(apiKey)) {
-      return res.status(400).json({ error: 'Invalid API key format' });
+      console.error('[DEBUG] Invalid API key format:', {
+        length: apiKey.length,
+        startsWithAIza: apiKey.startsWith('AIza')
+      });
+      return res.status(500).json({ error: 'Invalid API key format in environment variables' });
     }
+    
+    console.log('[DEBUG] API key validation passed');
 
     const genAI = new GoogleGenerativeAI(apiKey);
     
@@ -272,11 +297,41 @@ app.post('/api/gemini/generateContent', rateLimiter, async (req, res) => {
     const response = await result.response;
     console.log('Gemini API response received successfully');
 
+    const responseText = await response.text();
+    
+    // Process question and answer
+    const promptLines = req.body.prompt.split('\n');
+    const responseLines = responseText.split('\n');
+    
+    const questionIndex = promptLines.findIndex(line => line.toLowerCase().startsWith('question:'));
+    const answerIndex = responseLines.findIndex(line => line.startsWith('Answer:'));
+    
+    const cleanedPrompt = questionIndex >= 0 ?
+      promptLines[questionIndex].replace(/^question:\s*/i, '').trim() :
+      promptLines[promptLines.length - 1].trim();
+    
+    const cleanedResponse = answerIndex >= 0 ?
+      responseLines[answerIndex].replace(/^Answer:\s*/, '').trim() :
+      responseText;
+    
+    console.log('Logging chat:', { // Debug log
+      timestamp: new Date().toISOString(),
+      question: cleanedPrompt,
+      answer: cleanedResponse
+    });
+    
+    chatLogger.logChat(null, { // Use logChat method with null for req
+      timestamp: new Date().toISOString(),
+      question: cleanedPrompt,
+      answer: cleanedResponse
+    });
+    console.log('Logged chat data'); // Debug log
+    
     res.json({
       candidates: [{
         content: {
           parts: [{
-            text: response.text()
+            text: responseText
           }]
         }
       }]
@@ -440,9 +495,9 @@ app.get('/api/travel-instructions', rateLimiter, async (req, res) => {
         if (retryCount === MAX_RETRIES) {
           console.error(`All ${MAX_RETRIES} retry attempts failed`);
           
-          // Throw the error - in production we should only use the official Canada.ca source
           console.error('All retry attempts to official Canada.ca source failed');
-          throw error;
+          // Don't use default content, let the error propagate
+          throw new Error('Failed to retrieve travel instructions from Canada.ca after multiple attempts');
         }
         
         // Exponential backoff with jitter
@@ -489,7 +544,8 @@ app.get('/api/travel-instructions', rateLimiter, async (req, res) => {
       };
       console.error('Content validation failed with details:', contentInfo);
       
-      throw new Error('Processed content validation failed');
+      // Don't use default content, throw an error
+      throw new Error('Processed content validation failed - insufficient content length');
     }
     
     console.log('Content processed successfully, length:', content.length);

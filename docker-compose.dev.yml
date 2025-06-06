@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  # Redis Cache Service (Development)
+  redis:
+    image: redis:7-alpine
+    container_name: cf-travel-bot-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    command: redis-server --save ""
+    networks:
+      - dev-network
+
+  # Development Application with Hot Reload
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: development
+    container_name: cf-travel-bot-app-dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+      - "5173:5173"  # Vite dev server
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - REDIS_URL=redis://redis:6379
+      - ENABLE_CACHE=true
+      - ENABLE_RATE_LIMIT=false
+      - ENABLE_LOGGING=true
+      - LOG_LEVEL=debug
+    env_file:
+      - .env.development
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - dev_logs:/app/logs
+    depends_on:
+      - redis
+    networks:
+      - dev-network
+
+volumes:
+  redis_dev_data:
+    driver: local
+  dev_logs:
+    driver: local
+
+networks:
+  dev-network:
+    driver: bridge
+COMPOSE_DEV_EOF < /dev/null
