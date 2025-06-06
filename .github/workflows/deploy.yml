@@ -197,8 +197,40 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
           
-      - name: Deploy to production server
+      - name: Debug SSH Setup
         run: |
+          echo "=== BASIC DEBUG ==="
+          echo "Current user: $(whoami)"
+          echo "SSH agent PID: $SSH_AGENT_PID"
+          echo "SSH auth sock: $SSH_AUTH_SOCK"
+          
+          echo "=== SECRET VALIDATION ==="
+          if [ -z "${{ secrets.SERVER_HOST }}" ]; then
+            echo "ERROR: SERVER_HOST secret is empty"
+            exit 1
+          fi
+          if [ -z "${{ secrets.SERVER_USER }}" ]; then
+            echo "ERROR: SERVER_USER secret is empty"  
+            exit 1
+          fi
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            echo "ERROR: SSH_PRIVATE_KEY secret is empty"
+            exit 1
+          fi
+          echo "All secrets are set"
+          
+          echo "=== SSH AGENT STATUS ==="
+          ssh-add -l || echo "No keys in SSH agent"
+          
+          echo "=== CONNECTIVITY TEST ==="
+          nc -zv ${{ secrets.SERVER_HOST }} 22 || echo "Cannot connect to port 22"
+          
+          echo "=== SSH TEST ==="
+          ssh -vvv -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo success" || echo "SSH failed with code $?"
+
+      - name: Deploy to production server  
+        run: |
+          echo "Starting deployment..."
           # Create deployment package
           tar -czf cf-travel-bot-production.tar.gz \
             --exclude=node_modules \
@@ -213,26 +245,7 @@ jobs:
             --exclude=cf-travel-bot-production.tar.gz \
             --warning=no-file-changed \
             .
-          
-          # Debug environment and secrets
-          echo "=== DEBUG INFO ==="
-          echo "SERVER_HOST exists: ${{ secrets.SERVER_HOST != '' }}"
-          echo "SERVER_USER exists: ${{ secrets.SERVER_USER != '' }}"
-          echo "SSH_PRIVATE_KEY exists: ${{ secrets.SSH_PRIVATE_KEY != '' }}"
-          echo "SSH Agent Status:"
-          ssh-add -l || echo "No keys in SSH agent"
-          echo "==================="
-          
-          # Test basic connectivity first
-          echo "Testing basic connectivity to server..."
-          timeout 10 bash -c "</dev/tcp/${{ secrets.SERVER_HOST }}/22" && echo "Port 22 is open" || echo "Port 22 is closed or filtered"
-          
-          # Test SSH connection
-          echo "Testing SSH connection..."
-          ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo 'SSH connection successful'" 2>&1 || {
-            echo "SSH connection failed with exit code $?"
-            exit 1
-          }
+          echo "Package created successfully"
           
           # Upload to server
           echo "Uploading deployment package..."
