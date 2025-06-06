@@ -96,6 +96,8 @@ jobs:
             --exclude=proxy.log \
             --exclude=server.log \
             --exclude=vite.log \
+            --exclude=cf-travel-bot-staging.tar.gz \
+            --warning=no-file-changed \
             .
           
           # Upload to server
@@ -197,6 +199,8 @@ jobs:
             --exclude=proxy.log \
             --exclude=server.log \
             --exclude=vite.log \
+            --exclude=cf-travel-bot-production.tar.gz \
+            --warning=no-file-changed \
             .
           
           # Upload to server
