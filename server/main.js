@@ -808,16 +808,63 @@ app.get('/api/config', (req, res) => {
   res.json(responseConfig);
 });
 
-// Serve static files for React app
-app.use(express.static(path.join(__dirname, '../dist')));
+// Serve static files for React app - with fallback paths
+const possibleDistPaths = [
+  path.join(__dirname, '../dist'),
+  path.join(__dirname, 'dist'),
+  path.join(process.cwd(), 'dist')
+];
+
+let distPath = null;
+for (const testPath of possibleDistPaths) {
+  try {
+    if (require('fs').existsSync(testPath)) {
+      distPath = testPath;
+      console.log(`Found dist directory at: ${distPath}`);
+      break;
+    }
+  } catch (err) {
+    // Continue to next path
+  }
+}
+
+if (distPath) {
+  app.use(express.static(distPath));
+  console.log(`Serving static files from: ${distPath}`);
+} else {
+  console.error('Could not find dist directory at any of these paths:', possibleDistPaths);
+}
 
 // Serve the landing page under /landing path
-app.use('/landing', express.static(path.join(__dirname, '../public_html')));
+const possiblePublicPaths = [
+  path.join(__dirname, '../public_html'),
+  path.join(__dirname, 'public_html'),
+  path.join(process.cwd(), 'public_html')
+];
 
-// Handle landing page route explicitly (before catch-all)
-app.get('/landing', (req, res) => {
-    res.sendFile(path.join(__dirname, '../public_html/index.html'));
-});
+let publicPath = null;
+for (const testPath of possiblePublicPaths) {
+  try {
+    if (require('fs').existsSync(testPath)) {
+      publicPath = testPath;
+      console.log(`Found public_html directory at: ${publicPath}`);
+      break;
+    }
+  } catch (err) {
+    // Continue to next path
+  }
+}
+
+if (publicPath) {
+  app.use('/landing', express.static(publicPath));
+  
+  // Handle landing page route explicitly (before catch-all)
+  app.get('/landing', (req, res) => {
+      res.sendFile(path.join(publicPath, 'index.html'));
+  });
+} else {
+  console.error('Could not find public_html directory at any of these paths:', possiblePublicPaths);
+}
 
 // Handle React app routes (catch-all for client-side routing)
 // This must come after specific routes but before the 404 handler
@@ -828,7 +875,11 @@ app.get('*', (req, res, next) => {
     }
     
     // Serve React app for all other routes
-    res.sendFile(path.join(__dirname, '../dist/index.html'));
+    if (distPath) {
+        res.sendFile(path.join(distPath, 'index.html'));
+    } else {
+        return next(); // Let 404 handler take over
+    }
 });
 
 // Enhanced 404 error handler with helpful suggestions
@@ -873,8 +924,13 @@ app.use((req, res) => {
     return res.status(404).json(response);
   }
   
-  // For non-API requests, serve the React app (which will handle its own 404)
-  res.status(404).sendFile(path.join(__dirname, '../dist/index.html'));
+  // For non-API requests, serve the React app if available (which will handle its own 404)
+  if (distPath) {
+    res.status(404).sendFile(path.join(distPath, 'index.html'));
+  } else {
+    // If no dist directory found, send a plain 404 response
+    res.status(404).send('Not Found - Application files not available');
+  }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
