@@ -811,8 +811,8 @@ app.get('/api/config', (req, res) => {
 // Serve static files for React app - with fallback paths
 const possibleDistPaths = [
   path.join(__dirname, '../dist'),
-  path.join(__dirname, 'dist'),
-  path.join(process.cwd(), 'dist')
+  path.join(process.cwd(), 'dist'),
+  path.join(__dirname, 'dist')
 ];
 
 let distPath = null;
@@ -838,8 +838,8 @@ if (distPath) {
 // Serve the landing page under /landing path
 const possiblePublicPaths = [
   path.join(__dirname, '../public_html'),
-  path.join(__dirname, 'public_html'),
-  path.join(process.cwd(), 'public_html')
+  path.join(process.cwd(), 'public_html'),
+  path.join(__dirname, 'public_html')
 ];
 
 let publicPath = null;
