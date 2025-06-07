@@ -95,6 +95,8 @@ ssh root@46.202.177.230 'curl -f http://localhost:3000/health'
 ```
 
 **Recovery Process**:
-1. Fix symlink: `ln -sfn /path/to/correct/release /home/root/apps/cf-travel-bot/current`
-2. Update ecosystem.config.cjs if needed
-3. PM2 restart: `pm2 delete cf-travel-bot && pm2 start ecosystem.config.cjs && pm2 save`
+1. Use the automated fix script: `./scripts/fix-deployment.sh root 46.202.177.230 production`
+2. Or manually fix:
+   - Fix symlink: `ln -sfn /path/to/correct/release /home/root/apps/cf-travel-bot/current`
+   - Update ecosystem.config.cjs if needed
+   - PM2 restart: `pm2 delete cf-travel-bot && pm2 start ecosystem.config.cjs && pm2 save`

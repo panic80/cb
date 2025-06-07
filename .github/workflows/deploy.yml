@@ -139,6 +139,23 @@ jobs:
             # Build frontend
             npm run build:staging
             
+            # Create backup of current release (if exists and valid)
+            if [ -L "$DEPLOY_DIR/current" ] && [ -d "$(readlink -f $DEPLOY_DIR/current)" ]; then
+              CURRENT_TARGET=$(readlink -f $DEPLOY_DIR/current)
+              if [ -d "$CURRENT_TARGET/dist" ]; then
+                BACKUP_DIR="$DEPLOY_DIR/backup/$(date +%Y%m%d%H%M%S)"
+                mkdir -p "$BACKUP_DIR"
+                echo "Creating backup from $CURRENT_TARGET to $BACKUP_DIR"
+                cp -r "$CURRENT_TARGET"/* "$BACKUP_DIR/" 2>/dev/null || {
+                  echo "WARNING: Backup creation failed, but continuing deployment"
+                }
+              else
+                echo "INFO: Current release has no dist folder, skipping backup"
+              fi
+            else
+              echo "INFO: No valid current symlink found, skipping backup (likely first deployment)"
+            fi
+            
             # Update symlink atomically
             ln -sfn $RELEASE_DIR $DEPLOY_DIR/current
             
@@ -146,8 +163,16 @@ jobs:
             pm2 reload cf-travel-bot-staging || pm2 start ecosystem.config.cjs --only cf-travel-bot-staging
             
             # Cleanup old releases (keep last 3)
-            cd $DEPLOY_DIR/releases
-            ls -t | tail -n +4 | xargs -r rm -rf
+            if [ -d "$DEPLOY_DIR/releases" ]; then
+              cd $DEPLOY_DIR/releases
+              ls -t 2>/dev/null | tail -n +4 | xargs -r rm -rf
+            fi
+            
+            # Cleanup old backups (keep last 3)
+            if [ -d "$DEPLOY_DIR/backup" ]; then
+              cd $DEPLOY_DIR/backup
+              ls -t 2>/dev/null | tail -n +4 | xargs -r rm -rf
+            fi
           EOF
           
       - name: Health check
@@ -311,11 +336,21 @@ jobs:
             fi
             echo "✅ Build completed and dist/ folder verified"
             
-            # Create backup of current release
-            if [ -L "$DEPLOY_DIR/current" ]; then
-              BACKUP_DIR="$DEPLOY_DIR/backup/$(date +%Y%m%d%H%M%S)"
-              mkdir -p $BACKUP_DIR
-              cp -r $(readlink $DEPLOY_DIR/current)/* $BACKUP_DIR/
+            # Create backup of current release (if exists and valid)
+            if [ -L "$DEPLOY_DIR/current" ] && [ -d "$(readlink -f $DEPLOY_DIR/current)" ]; then
+              CURRENT_TARGET=$(readlink -f $DEPLOY_DIR/current)
+              if [ -d "$CURRENT_TARGET/dist" ]; then
+                BACKUP_DIR="$DEPLOY_DIR/backup/$(date +%Y%m%d%H%M%S)"
+                mkdir -p "$BACKUP_DIR"
+                echo "Creating backup from $CURRENT_TARGET to $BACKUP_DIR"
+                cp -r "$CURRENT_TARGET"/* "$BACKUP_DIR/" 2>/dev/null || {
+                  echo "WARNING: Backup creation failed, but continuing deployment"
+                }
+              else
+                echo "INFO: Current release has no dist folder, skipping backup"
+              fi
+            else
+              echo "INFO: No valid current symlink found, skipping backup (likely first deployment)"
             fi
             
             # Update symlink atomically
@@ -344,12 +379,16 @@ jobs:
             pm2 restart cf-travel-bot || pm2 start ecosystem.config.cjs --only cf-travel-bot
             
             # Cleanup old releases (keep last 5)
-            cd $DEPLOY_DIR/releases
-            ls -t | tail -n +6 | xargs -r rm -rf
+            if [ -d "$DEPLOY_DIR/releases" ]; then
+              cd $DEPLOY_DIR/releases
+              ls -t 2>/dev/null | tail -n +6 | xargs -r rm -rf
+            fi
             
             # Cleanup old backups (keep last 3)
-            cd $DEPLOY_DIR/backup
-            ls -t | tail -n +4 | xargs -r rm -rf
+            if [ -d "$DEPLOY_DIR/backup" ]; then
+              cd $DEPLOY_DIR/backup
+              ls -t 2>/dev/null | tail -n +4 | xargs -r rm -rf
+            fi
           EOF
           
       - name: Verify deployment
