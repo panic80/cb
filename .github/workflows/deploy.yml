@@ -321,6 +321,25 @@ jobs:
             # Update symlink atomically
             ln -sfn $RELEASE_DIR $DEPLOY_DIR/current
             
+            # Verify symlink points to correct release
+            SYMLINK_TARGET=$(readlink $DEPLOY_DIR/current)
+            if [ "$SYMLINK_TARGET" != "$RELEASE_DIR" ]; then
+              echo "ERROR: Symlink verification failed"
+              echo "Expected: $RELEASE_DIR"
+              echo "Actual: $SYMLINK_TARGET"
+              exit 1
+            fi
+            echo "✅ Symlink verified: points to $RELEASE_DIR"
+            
+            # Verify dist folder exists in current symlink
+            if [ ! -f "$DEPLOY_DIR/current/dist/index.html" ]; then
+              echo "ERROR: dist/index.html not accessible via current symlink"
+              echo "Symlink target contents:"
+              ls -la $DEPLOY_DIR/current/dist/ || echo "No dist directory"
+              exit 1
+            fi
+            echo "✅ Verified dist/index.html accessible via current symlink"
+            
             # Reload PM2 application
             pm2 reload cf-travel-bot || pm2 start ecosystem.config.cjs --only cf-travel-bot
             
@@ -379,13 +398,31 @@ jobs:
           # Rollback on health check failure
           ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
             DEPLOY_DIR="/home/${{ secrets.SERVER_USER }}/apps/cf-travel-bot"
-            BACKUP_DIR=$(ls -t $DEPLOY_DIR/backup | head -n 1)
+            
+            # Find latest backup with working dist folder
+            BACKUP_DIR=""
+            for backup in $(ls -t $DEPLOY_DIR/backup 2>/dev/null || echo ""); do
+              if [ -f "$DEPLOY_DIR/backup/$backup/dist/index.html" ]; then
+                BACKUP_DIR="$backup"
+                break
+              fi
+            done
+            
             if [ -n "$BACKUP_DIR" ]; then
-              echo "Rolling back to $BACKUP_DIR"
+              echo "Rolling back to $BACKUP_DIR (has working dist folder)"
               rm -f $DEPLOY_DIR/current
-              ln -s $DEPLOY_DIR/backup/$BACKUP_DIR $DEPLOY_DIR/current
-              pm2 reload cf-travel-bot
-              echo "Rollback completed"
+              ln -sfn $DEPLOY_DIR/backup/$BACKUP_DIR $DEPLOY_DIR/current
+              
+              # Verify rollback symlink
+              if [ -f "$DEPLOY_DIR/current/dist/index.html" ]; then
+                echo "✅ Rollback verified: dist/index.html accessible"
+                pm2 reload cf-travel-bot
+                echo "Rollback completed successfully"
+              else
+                echo "ERROR: Rollback failed - dist/index.html still not accessible"
+              fi
+            else
+              echo "ERROR: No suitable backup found with working dist folder"
             fi
           EOF
           exit 1
