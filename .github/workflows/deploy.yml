@@ -340,8 +340,8 @@ jobs:
             fi
             echo "✅ Verified dist/index.html accessible via current symlink"
             
-            # Reload PM2 application
-            pm2 reload cf-travel-bot || pm2 start ecosystem.config.cjs --only cf-travel-bot
+            # Restart PM2 application to pick up new symlink target
+            pm2 restart cf-travel-bot || pm2 start ecosystem.config.cjs --only cf-travel-bot
             
             # Cleanup old releases (keep last 5)
             cd $DEPLOY_DIR/releases
@@ -416,7 +416,7 @@ jobs:
               # Verify rollback symlink
               if [ -f "$DEPLOY_DIR/current/dist/index.html" ]; then
                 echo "✅ Rollback verified: dist/index.html accessible"
-                pm2 reload cf-travel-bot
+                pm2 restart cf-travel-bot
                 echo "Rollback completed successfully"
               else
                 echo "ERROR: Rollback failed - dist/index.html still not accessible"
