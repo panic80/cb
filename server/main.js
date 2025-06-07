@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync, statSync } from 'fs';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -816,16 +817,15 @@ const possibleDistPaths = [
 ];
 
 let distPath = null;
-const fs = require('fs');
 
 for (const testPath of possibleDistPaths) {
   try {
     console.log(`Checking dist path: ${testPath}`);
-    const exists = fs.existsSync(testPath);
+    const exists = existsSync(testPath);
     console.log(`  Path exists: ${exists}`);
     if (exists) {
       // Double-check it's actually a directory
-      const stats = fs.statSync(testPath);
+      const stats = statSync(testPath);
       if (stats.isDirectory()) {
         distPath = testPath;
         console.log(`Found dist directory at: ${distPath}`);
@@ -857,11 +857,11 @@ let publicPath = null;
 for (const testPath of possiblePublicPaths) {
   try {
     console.log(`Checking public_html path: ${testPath}`);
-    const exists = fs.existsSync(testPath);
+    const exists = existsSync(testPath);
     console.log(`  Path exists: ${exists}`);
     if (exists) {
       // Double-check it's actually a directory
-      const stats = fs.statSync(testPath);
+      const stats = statSync(testPath);
       if (stats.isDirectory()) {
         publicPath = testPath;
         console.log(`Found public_html directory at: ${publicPath}`);
