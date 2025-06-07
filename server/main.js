@@ -816,15 +816,26 @@ const possibleDistPaths = [
 ];
 
 let distPath = null;
+const fs = require('fs');
+
 for (const testPath of possibleDistPaths) {
   try {
-    if (require('fs').existsSync(testPath)) {
-      distPath = testPath;
-      console.log(`Found dist directory at: ${distPath}`);
-      break;
+    console.log(`Checking dist path: ${testPath}`);
+    const exists = fs.existsSync(testPath);
+    console.log(`  Path exists: ${exists}`);
+    if (exists) {
+      // Double-check it's actually a directory
+      const stats = fs.statSync(testPath);
+      if (stats.isDirectory()) {
+        distPath = testPath;
+        console.log(`Found dist directory at: ${distPath}`);
+        break;
+      } else {
+        console.log(`  Path exists but is not a directory`);
+      }
     }
   } catch (err) {
-    // Continue to next path
+    console.log(`  Error checking path: ${err.message}`);
   }
 }
 
@@ -845,13 +856,22 @@ const possiblePublicPaths = [
 let publicPath = null;
 for (const testPath of possiblePublicPaths) {
   try {
-    if (require('fs').existsSync(testPath)) {
-      publicPath = testPath;
-      console.log(`Found public_html directory at: ${publicPath}`);
-      break;
+    console.log(`Checking public_html path: ${testPath}`);
+    const exists = fs.existsSync(testPath);
+    console.log(`  Path exists: ${exists}`);
+    if (exists) {
+      // Double-check it's actually a directory
+      const stats = fs.statSync(testPath);
+      if (stats.isDirectory()) {
+        publicPath = testPath;
+        console.log(`Found public_html directory at: ${publicPath}`);
+        break;
+      } else {
+        console.log(`  Path exists but is not a directory`);
+      }
     }
   } catch (err) {
-    // Continue to next path
+    console.log(`  Error checking path: ${err.message}`);
   }
 }
 
