@@ -250,46 +250,81 @@ export default function OPIPage() {
     </Card>
   );
 
-  // Table Component - Mobile optimized
+  // Table Component - Mobile optimized with responsive design
   const ContactTable = ({ contacts, title }) => (
     <Card className="overflow-hidden rounded-xl shadow-sm">
       <CardHeader className="bg-[var(--background-secondary)] p-4 sm:p-6">
         <CardTitle className="text-lg sm:text-xl">{title}</CardTitle>
       </CardHeader>
-      <div className="overflow-x-auto">
+      
+      {/* Mobile: Stack layout */}
+      <div className="sm:hidden">
+        <div className="space-y-4 p-4">
+          {contacts.map((contact, index) => (
+            <div key={index} className="border border-[var(--border)] rounded-lg p-4 space-y-3 bg-[var(--card)]">
+              <div className="flex justify-between items-start gap-3">
+                <div className="flex-1">
+                  <h4 className="font-medium text-base">{contact.name}</h4>
+                  <p className="text-sm text-[var(--text-secondary)] mt-1">{contact.role}</p>
+                </div>
+              </div>
+              
+              {contact.units && contact.units.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {contact.units.map((unit, idx) => (
+                    <Badge key={idx} variant="secondary" className="text-xs">
+                      {unit}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              
+              <div className="pt-2 border-t border-[var(--border)]">
+                <a 
+                  href={`mailto:${contact.email}`} 
+                  className="text-sm text-[var(--primary)] hover:underline font-medium break-all"
+                >
+                  {contact.email}
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Desktop: Table layout */}
+      <div className="hidden sm:block overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="h-10 sm:h-12 px-3 sm:px-6 text-sm sm:text-base whitespace-nowrap">Name</TableHead>
-              <TableHead className="h-10 sm:h-12 px-3 sm:px-6 text-sm sm:text-base whitespace-nowrap">Role</TableHead>
-              <TableHead className="h-10 sm:h-12 px-3 sm:px-6 text-sm sm:text-base whitespace-nowrap">Units</TableHead>
-              <TableHead className="h-10 sm:h-12 px-3 sm:px-6 text-sm sm:text-base whitespace-nowrap">Email</TableHead>
+              <TableHead className="h-12 px-6 text-base whitespace-nowrap min-w-[140px]">Name</TableHead>
+              <TableHead className="h-12 px-6 text-base whitespace-nowrap min-w-[180px]">Role</TableHead>
+              <TableHead className="h-12 px-6 text-base whitespace-nowrap min-w-[200px]">Units</TableHead>
+              <TableHead className="h-12 px-6 text-base whitespace-nowrap min-w-[250px]">Email</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {contacts.map((contact, index) => (
               <TableRow key={index} className="hover:bg-[var(--background-secondary)] transition-colors">
-                <TableCell className="px-3 sm:px-6 py-3 sm:py-4">
-                  <span className="text-sm sm:text-base font-medium">{contact.name}</span>
+                <TableCell className="px-6 py-4">
+                  <span className="text-base font-medium">{contact.name}</span>
                 </TableCell>
-                <TableCell className="px-3 sm:px-6 py-3 sm:py-4 text-sm sm:text-base text-[var(--text-secondary)]">
-                  <div className="max-w-[120px] sm:max-w-none">
-                    {contact.role}
-                  </div>
+                <TableCell className="px-6 py-4 text-base text-[var(--text-secondary)]">
+                  {contact.role}
                 </TableCell>
-                <TableCell className="px-3 sm:px-6 py-3 sm:py-4">
+                <TableCell className="px-6 py-4">
                   {contact.units && contact.units.length > 0 ? (
-                    <div className="flex flex-wrap gap-1 sm:gap-2 max-w-[150px] sm:max-w-none">
+                    <div className="flex flex-wrap gap-2">
                       {contact.units.map((unit, idx) => (
-                        <Badge key={idx} variant="secondary" className="text-xs sm:text-sm">
+                        <Badge key={idx} variant="secondary" className="text-sm">
                           {unit}
                         </Badge>
                       ))}
                     </div>
                   ) : '—'}
                 </TableCell>
-                <TableCell className="px-3 sm:px-6 py-3 sm:py-4">
-                  <a href={`mailto:${contact.email}`} className="text-xs sm:text-base text-[var(--primary)] hover:underline font-medium break-all">
+                <TableCell className="px-6 py-4">
+                  <a href={`mailto:${contact.email}`} className="text-base text-[var(--primary)] hover:underline font-medium break-all">
                     {contact.email}
                   </a>
                 </TableCell>
