@@ -290,6 +290,9 @@ jobs:
             # Copy environment file
             cp $DEPLOY_DIR/shared/.env.production .env
             
+            # Add build timestamp for cache busting
+            echo "BUILD_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .env
+            
             # Build frontend
             npm run build:production
             
@@ -315,11 +318,41 @@ jobs:
             ls -t | tail -n +4 | xargs -r rm -rf
           EOF
           
+      - name: Verify deployment
+        run: |
+          echo "Verifying deployment files and PM2 status..."
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            DEPLOY_DIR="/home/${{ secrets.SERVER_USER }}/apps/cf-travel-bot"
+            echo "=== Current deployment directory ==="
+            ls -la $DEPLOY_DIR/current/
+            echo ""
+            echo "=== Dist directory contents ==="
+            ls -la $DEPLOY_DIR/current/dist/ || echo "No dist directory found"
+            echo ""
+            echo "=== Package.json version ==="
+            cat $DEPLOY_DIR/current/package.json | grep '"version"' || echo "No version found"
+            echo ""
+            echo "=== Environment file ==="
+            grep BUILD_TIMESTAMP $DEPLOY_DIR/current/.env || echo "No build timestamp found"
+            echo ""
+            echo "=== PM2 process status ==="
+            pm2 list | grep cf-travel-bot || echo "PM2 process not found"
+            echo ""
+            echo "=== PM2 process info ==="
+            pm2 info cf-travel-bot || echo "No detailed info available"
+            echo ""
+            echo "=== Test API endpoints ==="
+            curl -s localhost:3000/health | head -5 || echo "Health check failed"
+            echo ""
+            curl -s localhost:3000/api/deployment-info | head -5 || echo "Deployment info failed"
+          EOF
+          
       - name: Health check
         run: |
           sleep 15
           for i in {1..10}; do
-            if curl -f -s http://${{ secrets.PRODUCTION_URL }}/health; then
+            echo "Health check attempt $i..."
+            if curl -f -s -L --max-redirs 3 http://${{ secrets.PRODUCTION_URL }}/health; then
               echo "Health check passed"
               exit 0
             fi
@@ -336,7 +369,7 @@ jobs:
               echo "Rolling back to $BACKUP_DIR"
               rm -f $DEPLOY_DIR/current
               ln -s $DEPLOY_DIR/backup/$BACKUP_DIR $DEPLOY_DIR/current
-              pm2 reload cf-travel-bot-prod
+              pm2 reload cf-travel-bot
               echo "Rollback completed"
             fi
           EOF

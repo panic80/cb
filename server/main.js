@@ -775,6 +775,7 @@ app.get('/api/config', (req, res) => {
   // Safe configuration that doesn't expose sensitive info
   const responseConfig = {
     version: '1.0.0',
+    buildTime: process.env.BUILD_TIMESTAMP || new Date().toISOString(),
     environment: process.env.NODE_ENV || 'production',
     features: {
       aiChat: true,
@@ -809,6 +810,59 @@ app.get('/api/config', (req, res) => {
   res.json(responseConfig);
 });
 
+// Deployment verification endpoint (for debugging cache issues)
+app.get('/api/deployment-info', (req, res) => {
+  const fs = require('fs');
+  const buildInfo = {
+    timestamp: new Date().toISOString(),
+    buildTime: process.env.BUILD_TIMESTAMP,
+    nodeEnv: process.env.NODE_ENV,
+    processUptime: Math.floor(process.uptime()),
+    memoryUsage: process.memoryUsage(),
+    // Try to read package.json version
+    version: '1.0.0'
+  };
+
+  // Try to get build info from dist directory
+  try {
+    const packagePath = path.join(process.cwd(), 'package.json');
+    if (existsSync(packagePath)) {
+      const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+      buildInfo.version = pkg.version;
+    }
+  } catch (err) {
+    console.log('Could not read package.json:', err.message);
+  }
+
+  // Add cache-busting headers
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  
+  res.json(buildInfo);
+});
+
+// Cache-busting endpoint for forcing client refresh
+app.post('/api/clear-cache', (req, res) => {
+  // This endpoint helps with cache busting by providing a new timestamp
+  const cacheBreaker = Date.now();
+  
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  
+  res.json({
+    message: 'Cache busting initiated',
+    timestamp: new Date().toISOString(),
+    cacheBreaker,
+    buildTime: process.env.BUILD_TIMESTAMP,
+    instructions: {
+      manual: 'Press Ctrl+F5 (or Cmd+Shift+R on Mac) to force reload',
+      programmatic: `Add ?v=${cacheBreaker} to URLs to bypass cache`
+    }
+  });
+});
+
 // Serve static files for React app - with fallback paths
 const possibleDistPaths = [
   path.join(__dirname, '../dist'),
@@ -840,7 +894,24 @@ for (const testPath of possibleDistPaths) {
 }
 
 if (distPath) {
-  app.use(express.static(distPath));
+  // Serve static files with appropriate cache headers
+  app.use(express.static(distPath, {
+    maxAge: process.env.NODE_ENV === 'production' ? '1d' : '0',
+    etag: true,
+    lastModified: true,
+    setHeaders: (res, path) => {
+      // Cache JS/CSS files for longer, but allow revalidation
+      if (path.endsWith('.js') || path.endsWith('.css')) {
+        res.setHeader('Cache-Control', 'public, max-age=86400, must-revalidate');
+      }
+      // Don't cache HTML files to ensure updates are visible
+      if (path.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      }
+    }
+  }));
   console.log(`Serving static files from: ${distPath}`);
 } else {
   console.error('Could not find dist directory at any of these paths:', possibleDistPaths);
