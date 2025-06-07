@@ -56,7 +56,7 @@ fi
 # Set deployment configuration based on environment
 if [ "$ENVIRONMENT" == "production" ]; then
     APP_DIR="/home/$SERVER_USER/apps/cf-travel-bot"
-    PM2_APP="cf-travel-bot-prod"
+    PM2_APP="cf-travel-bot"
     PORT=3000
     HEALTH_URL="http://$SERVER_HOST/health"
     KEEP_RELEASES=5
