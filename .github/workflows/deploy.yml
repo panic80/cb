@@ -187,6 +187,12 @@ jobs:
       - name: Build for production
         run: npm run build:production
         
+      - name: Verify build output
+        run: |
+          echo "Verifying dist/ folder exists and contains files..."
+          ls -la dist/ || { echo "ERROR: dist/ folder not found after build"; exit 1; }
+          echo "Build verification complete"
+        
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.8.0
         with:
@@ -284,8 +290,8 @@ jobs:
             tar -xzf /tmp/cf-travel-bot-production.tar.gz
             rm /tmp/cf-travel-bot-production.tar.gz
             
-            # Install dependencies (including dev dependencies for build)
-            npm ci
+            # Install only production dependencies (no need to rebuild)
+            npm ci --only=production
             
             # Copy environment file
             cp $DEPLOY_DIR/shared/.env.production .env
@@ -293,8 +299,15 @@ jobs:
             # Add build timestamp for cache busting
             echo "BUILD_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .env
             
-            # Build frontend
-            npm run build:production
+            # Frontend is already built - dist/ folder should be included in the package
+            # Verify dist folder exists
+            if [ ! -d "dist" ]; then
+              echo "ERROR: dist/ folder not found in deployment package"
+              echo "Contents of release directory:"
+              ls -la
+              exit 1
+            fi
+            echo "✅ Verified dist/ folder exists"
             
             # Create backup of current release
             if [ -L "$DEPLOY_DIR/current" ]; then
