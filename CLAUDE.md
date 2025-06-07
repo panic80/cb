@@ -59,3 +59,42 @@ NODE_ENV=development
 - **Legacy**: `src/components/ChatWindow.jsx` (original)
 - **Modern**: `src/components/modern/ModernChatWindow.tsx` 
 - **Elite**: `src/new-chat-interface/` (latest, self-contained with theme support)
+
+## Production Deployment Issues & Solutions
+
+### Critical PM2 Configuration Requirements
+**Problem**: PM2 cluster mode (`instances: 'max'`) causes EADDRINUSE errors when multiple processes try to bind to the same port, leading to health check failures and deployment rollbacks.
+
+**Solution**: Always use single instance fork mode in production:
+```javascript
+// ecosystem.config.cjs
+{
+  instances: 1,        // NOT 'max'
+  exec_mode: 'fork'    // NOT 'cluster'
+}
+```
+
+### Deployment Symlink Management
+**Problem**: GitHub Actions deployment can create incorrect symlinks pointing to backup directories instead of latest releases, causing PM2 to serve stale code even after "successful" deployments.
+
+**Solution**: 
+1. Always use `pm2 restart` (not `pm2 reload`) when using symlinks
+2. Verify symlink points to correct release directory before PM2 restart
+3. Check that `current/dist/index.html` exists and is accessible
+
+**Troubleshooting Commands**:
+```bash
+# Check PM2 status and logs
+ssh root@46.202.177.230 'pm2 list && pm2 logs cf-travel-bot --lines 20'
+
+# Verify symlink and directory structure  
+ssh root@46.202.177.230 'ls -la /home/root/apps/cf-travel-bot/current && ls -la /home/root/apps/cf-travel-bot/current/dist/'
+
+# Test health check locally on server
+ssh root@46.202.177.230 'curl -f http://localhost:3000/health'
+```
+
+**Recovery Process**:
+1. Fix symlink: `ln -sfn /path/to/correct/release /home/root/apps/cf-travel-bot/current`
+2. Update ecosystem.config.cjs if needed
+3. PM2 restart: `pm2 delete cf-travel-bot && pm2 start ecosystem.config.cjs && pm2 save`
