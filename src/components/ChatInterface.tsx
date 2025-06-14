@@ -1,5 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
+import { getModelDisplayName, DEFAULT_MODEL_ID } from '../constants/models';
+import MarkdownRenderer from './ui/markdown-renderer';
+
+interface Source {
+  text: string;
+  reference?: string;
+}
 
 interface Message {
   id: string;
@@ -7,7 +14,8 @@ interface Message {
   sender: 'user' | 'assistant';
   timestamp: number;
   status?: 'sending' | 'sent' | 'delivered' | 'error';
-  sources?: string[];
+  sources?: Source[];
+  isFormatted?: boolean;
 }
 
 interface ChatInterfaceProps {
@@ -15,6 +23,7 @@ interface ChatInterfaceProps {
   onSendMessage: (message: string) => void;
   isLoading?: boolean;
   className?: string;
+  currentModel?: string;
 }
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
@@ -22,16 +31,24 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   onSendMessage,
   isLoading = false,
   className = '',
+  currentModel = getModelDisplayName(DEFAULT_MODEL_ID),
 }) => {
   const { theme } = useTheme();
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom when messages change or loading state changes
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const scrollToBottom = () => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    };
+    
+    // Small delay to ensure DOM updates are complete
+    const timeoutId = setTimeout(scrollToBottom, 100);
+    
+    return () => clearTimeout(timeoutId);
+  }, [messages, isLoading]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -119,15 +136,43 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               
               <div className={`message-bubble ${isUser ? 'user-bubble' : 'assistant-bubble'}`}>
                 <div className="message-content">
-                  {message.content}
+                  {message.sender === 'assistant' && message.isFormatted ? (
+                    <MarkdownRenderer>{message.content}</MarkdownRenderer>
+                  ) : (
+                    message.content
+                  )}
                 </div>
                 
                 {message.sources && message.sources.length > 0 && (
                   <div className="message-sources">
-                    <div className="sources-label">Sources:</div>
+                    <div className="sources-header">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="sources-icon">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14,2 14,8 20,8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                        <polyline points="10,9 9,9 8,9"/>
+                      </svg>
+                      <span className="sources-label">Sources</span>
+                    </div>
                     {message.sources.map((source, i) => (
                       <div key={i} className="source-item">
-                        {source}
+                        <div className="source-quote">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="quote-icon">
+                            <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1-.008-1-1.031V20c0 1 0 1 1 1z"/>
+                            <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/>
+                          </svg>
+                          <span className="source-text">{source.text}</span>
+                        </div>
+                        {source.reference && (
+                          <div className="source-reference">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="reference-icon">
+                              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.72"/>
+                              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.72-1.72"/>
+                            </svg>
+                            <span className="reference-text">{source.reference}</span>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -223,6 +268,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               )}
             </button>
           </div>
+        </div>
+        
+        {/* Powered by footer */}
+        <div className="powered-by-footer">
+          <span>Powered by LlamaIndex & {currentModel}</span>
         </div>
       </div>
     </div>

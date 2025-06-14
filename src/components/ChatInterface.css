@@ -215,12 +215,6 @@
   border-color: #374151;
 }
 
-.message-content {
-  font-size: 0.95rem;
-  line-height: 1.5;
-  word-wrap: break-word;
-  white-space: pre-wrap;
-}
 
 /* Sources */
 .message-sources {
@@ -237,31 +231,180 @@
   border-top-color: #374151;
 }
 
+.sources-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.sources-icon {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
 .sources-label {
   font-size: 0.75rem;
   font-weight: 600;
-  margin-bottom: 0.25rem;
   opacity: 0.8;
 }
 
 .source-item {
   font-size: 0.75rem;
-  padding: 0.25rem 0.5rem;
+  padding: 0.5rem;
   background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 0.375rem;
-  margin-bottom: 0.25rem;
-  display: inline-block;
-  margin-right: 0.25rem;
+  border-radius: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-left: 3px solid rgba(59, 130, 246, 0.5);
 }
 
 .assistant-bubble .source-item {
-  background-color: #e5e7eb;
+  background-color: #f8fafc;
   color: #1f2937;
+  border-left-color: #3b82f6;
 }
 
 [data-theme="dark"] .assistant-bubble .source-item {
-  background-color: #374151;
+  background-color: #334155;
   color: #f8fafc;
+  border-left-color: #60a5fa;
+}
+
+.source-quote {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.quote-icon {
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+  opacity: 0.6;
+}
+
+.source-text {
+  font-style: italic;
+  line-height: 1.4;
+}
+
+.source-reference {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.375rem;
+  padding-top: 0.375rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.user-bubble .source-reference {
+  border-top-color: rgba(255, 255, 255, 0.2);
+}
+
+[data-theme="dark"] .assistant-bubble .source-reference {
+  border-top-color: #475569;
+}
+
+.reference-icon {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.reference-text {
+  font-size: 0.7rem;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+/* Enhanced message content for formatted responses */
+.message-content {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  word-wrap: break-word;
+}
+
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.message-content h1:first-child,
+.message-content h2:first-child,
+.message-content h3:first-child,
+.message-content h4:first-child,
+.message-content h5:first-child,
+.message-content h6:first-child {
+  margin-top: 0;
+}
+
+.message-content ul,
+.message-content ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.message-content li {
+  margin: 0.25rem 0;
+}
+
+.message-content p {
+  margin: 0.5rem 0;
+}
+
+.message-content p:first-child {
+  margin-top: 0;
+}
+
+.message-content p:last-child {
+  margin-bottom: 0;
+}
+
+.message-content code {
+  background-color: rgba(0, 0, 0, 0.1);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+}
+
+.user-bubble .message-content code {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+[data-theme="dark"] .assistant-bubble .message-content code {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.message-content pre {
+  background-color: rgba(0, 0, 0, 0.05);
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+
+.user-bubble .message-content pre {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .assistant-bubble .message-content pre {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.message-content blockquote {
+  border-left: 3px solid #3b82f6;
+  padding-left: 1rem;
+  margin: 0.5rem 0;
+  font-style: italic;
+  opacity: 0.9;
+}
+
+.user-bubble .message-content blockquote {
+  border-left-color: rgba(255, 255, 255, 0.6);
 }
 
 /* Message Meta */
@@ -493,4 +636,22 @@
   .input-field {
     border: 2px solid #000000;
   }
+}
+
+/* Powered by footer */
+.powered-by-footer {
+  text-align: center;
+  padding: 0.5rem 1rem;
+  margin-top: 0.25rem;
+}
+
+.powered-by-footer span {
+  font-size: 0.75rem;
+  color: #6b7280;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+[data-theme="dark"] .powered-by-footer span {
+  color: #9ca3af;
 }

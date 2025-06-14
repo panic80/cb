@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from '@google/genai';
 import { fetchTravelInstructions } from './travelInstructions';
 import { parseApiResponse } from '../utils/chatUtils';
 import { ChatError, ChatErrorType } from '../utils/chatErrors';
@@ -31,6 +31,21 @@ export const validateApiKey = (apiKey) => {
  */
 export const createPrompt = (message, isSimplified = false, instructions) => {
   return `You are a helpful assistant for Canadian Forces Travel Instructions.
+
+SPECIAL CALCULATION INSTRUCTIONS:
+When a question involves travel entitlement calculations (e.g., "what are my entitlements", "total dollar amount", mentioning travel dates, mileage, R&Q, POMV, etc.), you MUST calculate the following components:
+
+1. INCIDENTALS: Calculate daily incidentals for each day the member is away from home
+2. MILEAGE: If POMV (Privately Owned Motor Vehicle) is authorized, calculate mileage costs based on distance provided
+3. MEALS EN ROUTE: Calculate meal entitlements for travel days based on travel times:
+   - If no specific times are provided, assume:
+     * Departure from home: 10:00 AM on first travel day
+     * Arrival home: 8:00 PM on last travel day  
+     * Departure from tasked location: after lunch timing on last day
+   - Calculate meal entitlements based on these travel hours according to regulations
+
+Provide a breakdown showing each component and the total dollar amount.
+
 Here is the ONLY source material you can reference:
 ${instructions}
 
@@ -128,7 +143,7 @@ export const callGeminiAPI = async (
   enableRetry = true
 ) => {
   const promptText = createPrompt(message, isSimplified, instructions);
-  const modelName = "gemini-2.0-flash";
+  const modelName = "gemini-2.5-flash-preview-05-20";
   const requestBody = {
     model: modelName,
     prompt: promptText,
@@ -250,7 +265,7 @@ export const getFallbackResponse = (isSimplified) => ({
 export const sendToGemini = async (
   message,
   isSimplified = false,
-  model = 'gemini-2.0-flash',
+  model = 'gemini-2.5-flash-preview-05-20',
   preloadedInstructions = null,
   useFallback = false
 ) => {

@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  rag-service:
+    build: .
+    container_name: haystack-rag-service
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - VECTOR_STORE_TYPE=memory
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./chroma_db:/app/chroma_db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: PostgreSQL with pgvector for persistent storage
+  # postgres:
+  #   image: pgvector/pgvector:pg16
+  #   container_name: rag-postgres
+  #   environment:
+  #     POSTGRES_USER: raguser
+  #     POSTGRES_PASSWORD: ragpass
+  #     POSTGRES_DB: ragdb
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+  #   restart: unless-stopped
+
+volumes:
+  postgres_data:
