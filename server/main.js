@@ -4,11 +4,12 @@ import { fileURLToPath } from 'url';
 import { existsSync, statSync } from 'fs';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import { loggingMiddleware } from './middleware/logging.js';
 import chatLogger from './services/logger.js';
 import CacheService from './services/cache.js';
 import dotenv from 'dotenv';
+import multer from 'multer';
 
 // Load environment variables based on NODE_ENV
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -25,11 +26,11 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Parse JSON request bodies with increased limit
-app.use(express.json({ limit: '10mb' }));
+// Parse JSON request bodies with increased limit for large files
+app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({
   extended: true,
-  limit: '10mb',
+  limit: '100mb',
   parameterLimit: 10000
 }));
 
@@ -311,40 +312,35 @@ app.post('/api/gemini/generateContent', rateLimiter, async (req, res) => {
     
     console.log('[DEBUG] API key validation passed');
 
-    const genAI = new GoogleGenerativeAI(apiKey);
+    const ai = new GoogleGenAI({
+      apiKey: apiKey,
+      apiVersion: "v1"
+    });
     
     // Extract model name from request or use default
-    const modelName = req.body.model || "gemini-2.0-flash";
+    const modelName = req.body.model || "gemini-2.5-flash-preview-05-20";
     console.log(`Using model: ${modelName}`);
     
-    const generationConfig = req.body.generationConfig || {
-      temperature: 0.1,
-      topP: 0.1,
-      topK: 1,
-      maxOutputTokens: 2048
-    };
-    
-    const model = genAI.getGenerativeModel({
-      model: modelName,
-      generationConfig: generationConfig
-    });
-
     // Handle different request formats
-    let result;
+    let contents;
     if (req.body.contents) {
       console.log('Using contents array format');
-      result = await model.generateContent(req.body.contents);
+      contents = req.body.contents;
     } else if (req.body.prompt) {
       console.log('Using prompt format');
-      result = await model.generateContent(req.body.prompt);
+      contents = req.body.prompt;
     } else {
       return res.status(400).json({ error: 'Invalid request format. Missing contents or prompt.' });
     }
     
-    const response = await result.response;
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents: contents,
+    });
+    
     console.log('Gemini API response received successfully');
 
-    const responseText = await response.text();
+    const responseText = response.text;
     
     // Process question and answer
     const promptLines = req.body.prompt.split('\n');
@@ -863,6 +859,334 @@ app.post('/api/clear-cache', (req, res) => {
   });
 });
 
+// Helper function to validate that follow-up questions are grounded in source content
+const validateSourceGrounding = async (questions, sourceContent) => {
+  if (!sourceContent || sourceContent.trim().length === 0) {
+    // If no source content, only keep high-confidence questions
+    return questions.filter(q => q.confidence >= 0.8);
+  }
+
+  const validatedQuestions = [];
+  
+  for (const question of questions) {
+    try {
+      // Simple validation: check if key terms from the question appear in source content
+      const questionWords = question.question.toLowerCase()
+        .replace(/[?.,!]/g, '')
+        .split(' ')
+        .filter(word => word.length > 3); // Filter out short words
+      
+      const sourceWords = sourceContent.toLowerCase();
+      const matchingWords = questionWords.filter(word => sourceWords.includes(word));
+      
+      // Calculate grounding score based on word overlap
+      const groundingScore = matchingWords.length / Math.max(questionWords.length, 1);
+      
+      // Only include questions with reasonable grounding (>30% word overlap or high confidence with grounding info)
+      if (groundingScore > 0.3 || (question.confidence > 0.8 && question.sourceGrounding)) {
+        validatedQuestions.push({
+          ...question,
+          groundingScore: groundingScore
+        });
+      } else {
+        console.log(`Filtered out question due to poor grounding: "${question.question}" (score: ${groundingScore})`);
+      }
+    } catch (error) {
+      console.error('Error validating question grounding:', error);
+      // If validation fails, keep the question but mark it as uncertain
+      validatedQuestions.push({
+        ...question,
+        confidence: Math.min(question.confidence, 0.6),
+        groundingScore: 0
+      });
+    }
+  }
+  
+  return validatedQuestions;
+};
+
+// Follow-up Questions endpoint - generates contextual follow-up questions
+app.post('/api/v2/followup', rateLimiter, async (req, res) => {
+  const { userQuestion, aiResponse, sources, conversationHistory } = req.body;
+
+  // Validate input
+  if (!userQuestion || !aiResponse) {
+    return res.status(400).json({ 
+      error: 'Bad Request', 
+      message: 'userQuestion and aiResponse are required.' 
+    });
+  }
+
+  try {
+    console.log('Generating follow-up questions for:', userQuestion.substring(0, 50) + '...');
+
+    // Create a specialized prompt for follow-up question generation with strict source grounding
+    const MAX_SOURCE_CONTENT_LENGTH = 2000; // Limit source content to prevent token overflow
+    
+    const sourceContentSnippets = sources && sources.length > 0 
+      ? sources.map(s => {
+          const content = s.text || '';
+          const truncatedContent = content.length > MAX_SOURCE_CONTENT_LENGTH 
+            ? content.substring(0, MAX_SOURCE_CONTENT_LENGTH) + '...'
+            : content;
+          return `Source: ${s.reference || 'Document'}\nContent: ${truncatedContent}`;
+        }).join('\n\n')
+      : '';
+
+    const followUpPrompt = `You are a helpful assistant specialized in generating contextual follow-up questions that are STRICTLY GROUNDED in the provided source material. You must ONLY generate questions that can be answered using the exact content provided below.
+
+CRITICAL CONSTRAINTS:
+- ONLY create questions that can be answered from the provided source content
+- DO NOT generate questions about topics not covered in the sources
+- DO NOT create questions that would require external knowledge or speculation
+- Each question must be answerable using specific text from the provided sources
+
+USER'S ORIGINAL QUESTION: "${userQuestion}"
+
+AI RESPONSE PROVIDED: "${aiResponse}"
+
+AVAILABLE SOURCE CONTENT (this is the ONLY information you may reference):
+${sourceContentSnippets || 'No source content available. Generate only general clarification questions about the provided response.'}
+
+${conversationHistory && conversationHistory.length > 0 ? `CONVERSATION CONTEXT:\n${conversationHistory.slice(-4).map(h => `${h.role}: ${h.content.substring(0, 100)}...`).join('\n')}` : ''}
+
+TASK: Generate 2-3 follow-up questions that are:
+1. ANSWERABLE using only the provided source content above
+2. Would help the user explore the available information more deeply
+3. Lead to specific, factual responses (not speculation)
+
+QUESTION TYPES TO PRIORITIZE:
+- Clarification about specific details mentioned in the sources
+- Questions about related topics explicitly covered in the provided content
+- Practical applications mentioned in the source material
+- Specific requirements, procedures, or examples found in the sources
+
+AVOID:
+- Questions about topics not in the source content
+- Hypothetical scenarios not covered by sources
+- Questions requiring external knowledge
+- Generic questions not grounded in the specific content
+
+Return ONLY this JSON format:
+{
+  "questions": [
+    {
+      "question": "Specific question answerable from source content",
+      "category": "clarification|related|practical|explore",
+      "confidence": 0.9,
+      "sourceGrounding": "Brief indication of which source content supports this question"
+    }
+  ]
+}
+
+If the source content is insufficient to generate meaningful grounded questions, return an empty questions array.`;
+
+    // Use the same model and provider as the main conversation
+    const model = req.body.model || 'gpt-4';
+    const provider = req.body.provider || 'openai';
+
+    // Call the RAG service for question generation
+    const ragServiceUrl = process.env.RAG_SERVICE_URL + '/chat';
+    
+    const response = await axios.post(ragServiceUrl, {
+      message: followUpPrompt,
+      model: model,
+      provider: provider,
+      stream: false
+    }, {
+      timeout: 15000, // 15 second timeout for follow-up generation
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const followUpText = response.data.response || '';
+    
+    // Parse the response to extract follow-up questions
+    let followUpQuestions = [];
+    try {
+      // Try to extract JSON from the response
+      const jsonMatch = followUpText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        const questions = parsed.questions || [];
+        
+        followUpQuestions = questions.map((q, index) => ({
+          id: `followup-${Date.now()}-${index}`,
+          question: q.question || '',
+          category: q.category || 'related',
+          confidence: q.confidence || 0.7,
+          sourceGrounding: q.sourceGrounding || null
+        })).filter(q => q.question.trim().length > 0);
+      }
+    } catch (parseError) {
+      console.log('Failed to parse JSON, trying text extraction');
+      // Fallback: extract questions from plain text
+      const lines = followUpText.split('\n');
+      lines.forEach((line, index) => {
+        const trimmed = line.trim();
+        if (trimmed.endsWith('?') && trimmed.length > 10) {
+          const cleanQuestion = trimmed
+            .replace(/^\d+\.\s*/, '')
+            .replace(/^[-*]\s*/, '')
+            .replace(/^Q:\s*/i, '')
+            .trim();
+          
+          if (cleanQuestion.length > 10) {
+            // Determine category based on question content
+            let category = 'related';
+            const questionLower = cleanQuestion.toLowerCase();
+            
+            if (questionLower.includes('how') || questionLower.includes('what steps') || questionLower.includes('process')) {
+              category = 'practical';
+            } else if (questionLower.includes('what') || questionLower.includes('explain') || questionLower.includes('clarify')) {
+              category = 'clarification';
+            } else if (questionLower.includes('more') || questionLower.includes('additional') || questionLower.includes('other')) {
+              category = 'explore';
+            }
+            
+            followUpQuestions.push({
+              id: `followup-text-${Date.now()}-${index}`,
+              question: cleanQuestion,
+              category: category,
+              confidence: 0.6,
+              sourceGrounding: 'Extracted from AI response'
+            });
+          }
+        }
+      });
+    }
+
+    // Validate questions to ensure they are source-grounded
+    const validatedQuestions = await validateSourceGrounding(followUpQuestions, sourceContentSnippets);
+    
+    // Limit to 3 questions and send response
+    const finalQuestions = validatedQuestions.slice(0, 3);
+    
+    console.log(`Generated ${followUpQuestions.length} questions, validated ${finalQuestions.length} as source-grounded`);
+
+    res.json({
+      followUpQuestions: finalQuestions
+    });
+
+  } catch (error) {
+    console.error('Error generating follow-up questions:', error.message);
+    
+    // Return empty array on error rather than failing the whole request
+    res.json({
+      followUpQuestions: []
+    });
+  }
+});
+
+// RAG Chat endpoint - proxies to Python RAG service
+app.post('/api/v2/chat', rateLimiter, async (req, res) => {
+  const { message, model, provider } = req.body;
+
+  // Validate input message
+  if (!message || typeof message !== 'string' || message.trim().length === 0) {
+    return res.status(400).json({ 
+      error: 'Bad Request', 
+      message: 'Message must be a non-empty string.' 
+    });
+  }
+
+  try {
+    console.log('Proxying chat request to RAG service with model:', model, 'provider:', provider);
+    // Validate required parameters
+    if (!model) {
+      return res.status(400).json({ 
+        error: 'Bad Request', 
+        message: 'Model parameter is required.' 
+      });
+    }
+    
+    if (!provider) {
+      return res.status(400).json({ 
+        error: 'Bad Request', 
+        message: 'Provider parameter is required.' 
+      });
+    }
+    
+    console.log('Model:', model, 'Provider:', provider);
+    
+    // RAG Service URL (Python FastAPI service)
+    if (!process.env.RAG_SERVICE_URL) {
+      return res.status(500).json({ 
+        error: 'Configuration Error', 
+        message: 'RAG_SERVICE_URL environment variable is not configured.' 
+      });
+    }
+    
+    const ragServiceUrl = process.env.RAG_SERVICE_URL + '/chat';
+    
+    // Forward the request to the Python RAG service with stream: false for JSON response
+    const response = await axios.post(ragServiceUrl, {
+      message: message.trim(),
+      model: model,
+      provider: provider,
+      stream: false
+    }, {
+      timeout: 30000, // 30 second timeout for RAG responses
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    console.log('RAG service responded with data');
+
+    // Get the JSON response
+    const ragResponse = response.data;
+    
+    // Send JSON response directly
+    res.json({
+      response: ragResponse.response || '',
+      sources: ragResponse.sources || [],
+      conversation_id: ragResponse.conversation_id || null,
+      model: ragResponse.model || model
+    });
+
+  } catch (error) {
+    console.error('Error proxying chat request to RAG service:', error.message);
+    
+    // Handle specific error cases
+    if (error.code === 'ECONNREFUSED') {
+      return res.status(503).json({ 
+        error: 'Service Unavailable', 
+        message: 'The RAG service is not running. Please ensure the Python service is started at http://localhost:8000' 
+      });
+    }
+    
+    if (error.code === 'ETIMEDOUT') {
+      return res.status(504).json({
+        error: 'Gateway Timeout',
+        message: 'The RAG service took too long to respond. Please try again.'
+      });
+    }
+    
+    if (error.response?.status === 400) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Invalid request sent to RAG service.'
+      });
+    }
+    
+    if (error.response?.status === 500) {
+      return res.status(502).json({
+        error: 'Bad Gateway',
+        message: 'The RAG service encountered an internal error.'
+      });
+    }
+    
+    // Generic error response
+    res.status(503).json({ 
+      error: 'Service Unavailable', 
+      message: 'The AI service is currently unavailable. Please try again later.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 // Serve static files for React app - with fallback paths
 const possibleDistPaths = [
   path.join(__dirname, '../dist'),
@@ -956,6 +1280,338 @@ if (publicPath) {
 } else {
   console.error('Could not find public_html directory at any of these paths:', possiblePublicPaths);
 }
+
+// RAG Configuration API endpoints
+if (!process.env.RAG_SERVICE_URL) {
+  console.error('RAG_SERVICE_URL environment variable is required');
+  process.exit(1);
+}
+const RAG_SERVICE_URL = process.env.RAG_SERVICE_URL;
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow only specific file types
+    const allowedTypes = [
+      'text/plain',
+      'text/markdown',
+      'application/pdf',
+      'text/html',
+      'application/json'
+    ];
+    
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Unsupported file type'), false);
+    }
+  }
+});
+
+// RAG Status endpoint
+app.get('/api/rag/status', rateLimiter, async (req, res) => {
+  try {
+    // Call the actual RAG service status endpoint
+    const statusResponse = await axios.get(`${RAG_SERVICE_URL}/status`, {
+      timeout: 5000
+    });
+    
+    // Forward the actual status from RAG service
+    res.json(statusResponse.data);
+  } catch (error) {
+    console.error('Failed to get RAG status:', error.message);
+    
+    // Return mock data if RAG service is unavailable
+    const fallbackStatus = {
+      totalVectors: 0,
+      totalSources: 0,
+      averageQueryTime: 0,
+      storageUsed: '0 MB',
+      isHealthy: false,
+      lastUpdate: new Date().toISOString()
+    };
+    
+    res.json(fallbackStatus);
+  }
+});
+
+// RAG Sources endpoint
+app.get('/api/rag/sources', rateLimiter, async (req, res) => {
+  try {
+    // Call the actual RAG service sources endpoint
+    const sourcesResponse = await axios.get(`${RAG_SERVICE_URL}/sources`, {
+      timeout: 5000
+    });
+    
+    // Forward the actual sources from RAG service
+    res.json(sourcesResponse.data);
+  } catch (error) {
+    console.error('Failed to get RAG sources:', error.message);
+    
+    // Return empty array if RAG service is unavailable
+    res.json([]);
+  }
+});
+
+// URL Ingestion endpoint
+app.post('/api/rag/ingest/url', rateLimiter, async (req, res) => {
+  try {
+    const { url } = req.body;
+    
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({
+        error: 'Invalid request',
+        message: 'URL is required and must be a string'
+      });
+    }
+    
+    // Validate URL format
+    try {
+      new URL(url);
+    } catch {
+      return res.status(400).json({
+        error: 'Invalid URL',
+        message: 'Please provide a valid URL'
+      });
+    }
+    
+    // Forward to RAG service
+    const response = await axios.post(`${RAG_SERVICE_URL}/ingest/url`, {
+      url: url
+    }, {
+      timeout: 30000 // 30 seconds for ingestion
+    });
+    
+    res.json({
+      success: true,
+      message: 'URL ingestion started successfully',
+      data: response.data
+    });
+    
+  } catch (error) {
+    console.error('URL ingestion error:', error.message);
+    if (error.response) {
+      res.status(error.response.status).json({
+        error: 'RAG service error',
+        message: error.response.data?.message || error.message
+      });
+    } else {
+      res.status(503).json({
+        error: 'Service unavailable',
+        message: 'Could not connect to RAG service'
+      });
+    }
+  }
+});
+
+// File Upload endpoint
+// File upload endpoint - handles both multipart and JSON base64
+app.post('/api/rag/ingest/file', rateLimiter, async (req, res, next) => {
+  // Check if this is a JSON request with base64 content
+  if (req.headers['content-type']?.includes('application/json') && req.body.content) {
+    try {
+      console.log('Processing JSON base64 file upload:', {
+        filename: req.body.filename,
+        mimetype: req.body.mimetype,
+        size: req.body.size
+      });
+      
+      // Forward the JSON directly to RAG service
+      const response = await axios.post(`${RAG_SERVICE_URL}/ingest/file`, req.body, {
+        timeout: 60000, // 60 seconds for file processing
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        maxContentLength: 100 * 1024 * 1024, // 100MB
+        maxBodyLength: 100 * 1024 * 1024 // 100MB
+      });
+      
+      res.json({
+        success: true,
+        message: 'File uploaded and ingestion started successfully',
+        ...response.data
+      });
+    } catch (error) {
+      console.error('File upload error:', error.message);
+      
+      if (error.response) {
+        return res.status(error.response.status).json({
+          error: error.response.data?.detail || 'Upload failed',
+          message: error.response.data?.detail || error.message
+        });
+      }
+      
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'An unexpected error occurred'
+      });
+    }
+  } else {
+    // Handle multipart form data with multer
+    upload.single('file')(req, res, next);
+  }
+}, async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'No file uploaded',
+        message: 'Please select a file to upload'
+      });
+    }
+    
+    const file = req.file;
+    
+    // Convert buffer to base64 for transmission to RAG service
+    const fileData = {
+      filename: file.originalname,
+      mimetype: file.mimetype,
+      content: file.buffer.toString('base64'),
+      size: file.size
+    };
+    
+    // Forward to RAG service
+    const response = await axios.post(`${RAG_SERVICE_URL}/ingest/file`, fileData, {
+      timeout: 60000, // 60 seconds for file processing
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    res.json({
+      success: true,
+      message: 'File uploaded and ingestion started successfully',
+      data: response.data
+    });
+    
+  } catch (error) {
+    console.error('File upload error:', error.message);
+    
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        error: 'File too large',
+        message: 'File size must be less than 10MB'
+      });
+    }
+    
+    if (error.message === 'Unsupported file type') {
+      return res.status(400).json({
+        error: 'Unsupported file type',
+        message: 'Please upload TXT, MD, PDF, HTML, or JSON files only'
+      });
+    }
+    
+    if (error.response) {
+      res.status(error.response.status).json({
+        error: 'RAG service error',
+        message: error.response.data?.message || error.message
+      });
+    } else {
+      res.status(503).json({
+        error: 'Service unavailable',
+        message: 'Could not connect to RAG service'
+      });
+    }
+  }
+});
+
+// Delete source endpoint (alternative POST method for complex IDs)
+app.post('/api/rag/sources/delete', rateLimiter, async (req, res) => {
+  try {
+    const { id } = req.body;
+    
+    if (!id || typeof id !== 'string') {
+      return res.status(400).json({
+        error: 'Invalid request',
+        message: 'Source ID is required in request body and must be a string'
+      });
+    }
+    
+    console.log(`Deleting source via POST: ${id}`);
+    
+    // Forward to RAG service's POST delete endpoint
+    const response = await axios.post(`${RAG_SERVICE_URL}/sources/delete`, {
+      id: id
+    }, {
+      timeout: 30000, // 30 seconds for deletion
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log(`Source ${id} deleted successfully`);
+    
+    res.json({
+      success: true,
+      message: `Source ${id} deleted successfully`,
+      data: response.data
+    });
+    
+  } catch (error) {
+    console.error('Source deletion error:', error.message);
+    
+    if (error.response) {
+      res.status(error.response.status).json({
+        error: 'RAG service error',
+        message: error.response.data?.detail || error.message
+      });
+    } else {
+      res.status(503).json({
+        error: 'Service unavailable',
+        message: 'Could not connect to RAG service'
+      });
+    }
+  }
+});
+
+// Delete source endpoint
+app.delete('/api/rag/sources/:id', rateLimiter, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!id || typeof id !== 'string') {
+      return res.status(400).json({
+        error: 'Invalid request',
+        message: 'Source ID is required and must be a string'
+      });
+    }
+    
+    // Decode the URL-encoded source ID
+    const decodedId = decodeURIComponent(id);
+    console.log(`Deleting source: ${decodedId}`);
+    
+    // Forward to RAG service with properly encoded ID
+    const response = await axios.delete(`${RAG_SERVICE_URL}/sources/${encodeURIComponent(decodedId)}`, {
+      timeout: 30000 // 30 seconds for deletion
+    });
+    
+    console.log(`Source ${decodedId} deleted successfully`);
+    
+    res.json({
+      success: true,
+      message: `Source ${decodedId} deleted successfully`,
+      data: response.data
+    });
+    
+  } catch (error) {
+    console.error('Source deletion error:', error.message);
+    
+    if (error.response) {
+      res.status(error.response.status).json({
+        error: 'RAG service error',
+        message: error.response.data?.detail || error.message
+      });
+    } else {
+      res.status(503).json({
+        error: 'Service unavailable',
+        message: 'Could not connect to RAG service'
+      });
+    }
+  }
+});
 
 // Handle React app routes (catch-all for client-side routing)
 // This must come after specific routes but before the 404 handler

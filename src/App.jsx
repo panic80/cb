@@ -12,6 +12,7 @@ const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
 const ChatPage = lazy(() => import('./pages/ChatPage'));
 const LoadingDebugPage = lazy(() => import('./pages/LoadingDebugPage'));
 const OPIPage = lazy(() => import('./pages/OPIPage'));
+const ConfigPage = lazy(() => import('./pages/ConfigPage'));
 
 // Prefetch components
 const prefetchComponent = (importFn) => {
@@ -111,6 +112,11 @@ function App() {
                 </Suspense>
               }
             />
+            <Route path="/chat/config" element={
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
+                <ConfigPage />
+              </Suspense>
+            } />
             <Route path="/privacy" element={
                           <Suspense fallback={<div className="min-h-screen bg-background" />}>
                             <PrivacyPage />

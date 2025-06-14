@@ -2,6 +2,20 @@
  * Elite Chat Interface - Type Definitions
  */
 
+export interface FollowUpQuestion {
+  id: string;
+  question: string;
+  category?: 'clarification' | 'related' | 'practical' | 'explore';
+  confidence?: number;
+  sourceGrounding?: string;
+  groundingScore?: number;
+}
+
+export interface Source {
+  text: string;
+  reference?: string;
+}
+
 export interface Message {
   id: string;
   content: string;
@@ -12,6 +26,9 @@ export interface Message {
   attachments?: Attachment[];
   reactions?: Reaction[];
   metadata?: Record<string, any>;
+  sources?: Source[];
+  isFormatted?: boolean;
+  followUpQuestions?: FollowUpQuestion[];
 }
 
 export interface Attachment {

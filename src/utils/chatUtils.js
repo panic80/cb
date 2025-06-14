@@ -43,14 +43,57 @@ export const parseApiResponse = (text, isSimplified = false) => {
   const answer = sections.find(line => line.startsWith('Answer:'))?.replace('Answer:', '').trim();
   const reason = sections.find(line => line.startsWith('Reason:'))?.replace('Reason:', '').trim();
 
-  if (!answer) {
-    throw new Error('Response missing required answer section');
+  // Check if we have the old structured format
+  if (answer) {
+    // Create formatted markdown content for old format
+    let formattedText = '';
+    
+    if (isSimplified) {
+      formattedText = answer;
+    } else {
+      formattedText = answer;
+      if (reason) {
+        formattedText += `\n\n**Detailed Explanation:**\n\n${reason}`;
+      }
+    }
+    
+    return {
+      text: formattedText,
+      sources: quote ? [{ text: quote, reference }] : [],
+      isFormatted: true
+    };
   }
-
-  const formattedText = isSimplified ? answer : (reason ? `${answer}\n\nReason: ${reason}` : answer);
+  
+  // Handle new format - already well-formatted response with markdown
+  // Extract sources if they exist (look for "(Source X)" patterns)
+  const sourceMatches = text.match(/\(Source \d+(?:, Source \d+)*\)/g) || [];
+  const sources = [];
+  
+  if (sourceMatches.length > 0) {
+    // Extract unique source numbers and create a cleaner reference
+    const allSources = new Set();
+    sourceMatches.forEach(match => {
+      // Extract individual source numbers from each match
+      const numbers = match.match(/\d+/g) || [];
+      numbers.forEach(num => allSources.add(parseInt(num)));
+    });
+    
+    // Convert to sorted array and create readable reference
+    const sortedSources = Array.from(allSources).sort((a, b) => a - b);
+    const referenceText = sortedSources.length === 1 
+      ? `Source ${sortedSources[0]}`
+      : `Sources ${sortedSources.join(', ')}`;
+    
+    sources.push({
+      text: "Information referenced from the provided documentation",
+      reference: referenceText
+    });
+  }
+  
   return {
-    text: formattedText,
-    sources: quote ? [{ text: quote, reference }] : []
+    text: text, // Use the response as-is since it's already well formatted
+    sources: sources,
+    isFormatted: true
   };
 };
 
