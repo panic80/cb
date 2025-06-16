@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from app.models.schemas import StatusResponse
 from app.pipelines.manager import PipelineManager
 from app.core.config import settings
+from app.services.metrics import metrics_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -86,4 +87,53 @@ async def readiness_check(
         return JSONResponse(
             status_code=503,
             content={"status": "not_ready", "message": str(e)}
+        )
+
+
+@router.get("/metrics")
+async def get_metrics():
+    """Get service metrics."""
+    try:
+        metrics = metrics_service.export_metrics()
+        return metrics
+    except Exception as e:
+        logger.error(f"Error getting metrics: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Failed to get metrics", "message": str(e)}
+        )
+
+
+@router.get("/metrics/summary")
+async def get_metrics_summary(
+    pipeline_manager: PipelineManager = Depends(get_pipeline_manager)
+):
+    """Get summarized service metrics."""
+    try:
+        service_metrics = metrics_service.get_service_metrics()
+        
+        # Update document count
+        try:
+            doc_count = await pipeline_manager.get_document_count()
+            metrics_service._counters["documents_total"] = doc_count
+            service_metrics.documents_total = doc_count
+        except Exception as e:
+            logger.warning(f"Could not get document count: {e}")
+        
+        # Update source count  
+        try:
+            sources_data = await pipeline_manager.list_sources(limit=1)
+            source_count = sources_data.get("total", 0)
+            metrics_service._counters["sources_total"] = source_count
+            service_metrics.sources_total = source_count
+        except Exception as e:
+            logger.warning(f"Could not get source count: {e}")
+        
+        return service_metrics
+        
+    except Exception as e:
+        logger.error(f"Error getting metrics summary: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Failed to get metrics summary", "message": str(e)}
         )

@@ -27,6 +27,7 @@ class ChatRequest(BaseModel):
     stream: bool = Field(default=True, description="Enable streaming response")
     retrieval_mode: Optional[RetrievalMode] = Field(default=RetrievalMode.EMBEDDING, description="Retrieval mode")
     filters: Optional[Dict[str, Any]] = Field(default=None, description="Document filters")
+    query_config: Optional[Dict[str, Any]] = Field(default=None, description="Per-query configuration overrides")
 
 
 class ChatResponse(BaseModel):
@@ -35,6 +36,8 @@ class ChatResponse(BaseModel):
     sources: Optional[List[Dict[str, Any]]] = Field(default=None, description="Source documents used")
     conversation_id: str = Field(..., description="Conversation ID")
     model: str = Field(..., description="Model used")
+    confidence_score: Optional[float] = Field(default=None, description="Confidence score of the response")
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="Response metadata")
     timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
@@ -42,6 +45,10 @@ class URLIngestRequest(BaseModel):
     """URL ingestion request model."""
     url: str = Field(..., description="URL to ingest")
     metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata")
+    enable_crawling: bool = Field(default=True, description="Enable web crawling")
+    max_depth: Optional[int] = Field(default=None, description="Maximum crawling depth (overrides config)")
+    max_pages: Optional[int] = Field(default=None, description="Maximum pages to crawl (overrides config)")
+    follow_external_links: Optional[bool] = Field(default=None, description="Follow external links (overrides config)")
 
 
 class FileIngestRequest(BaseModel):

@@ -1,51 +1,64 @@
 #!/usr/bin/env python3
-"""Debug script to test the query pipeline step by step."""
 
-import os
-import sys
-import asyncio
-from dotenv import load_dotenv
+"""Debug script to test pipeline creation with WebCrawler."""
 
-# Add the app directory to the path
-sys.path.append('app')
+import logging
+from haystack.document_stores.in_memory import InMemoryDocumentStore
+from app.pipelines.indexing import create_url_indexing_pipeline
 
-from app.pipelines.manager import PipelineManager
+logging.basicConfig(level=logging.INFO)
 
-async def debug_pipeline():
-    """Debug the pipeline step by step."""
-    load_dotenv()
+def test_pipeline_creation():
+    """Test pipeline creation with WebCrawler."""
     
-    # Initialize pipeline manager
-    manager = PipelineManager()
-    await manager.initialize()
+    print("Testing pipeline creation...")
     
-    print("=== Pipeline Debug ===")
+    # Create document store
+    document_store = InMemoryDocumentStore()
     
-    # Check document count
-    doc_count = await manager.get_document_count()
-    print(f"Document count: {doc_count}")
+    # Test crawling pipeline creation
+    print("Creating crawling pipeline...")
+    crawling_pipeline = create_url_indexing_pipeline(
+        document_store=document_store,
+        enable_crawling=True,
+        max_depth=1,
+        max_pages=5,
+        follow_external_links=False
+    )
     
-    # Test query
-    query = "what are travel rates"
-    print(f"Testing query: {query}")
+    # Check fetcher component type
+    fetcher = crawling_pipeline.get_component("fetcher")
+    print(f"Crawling pipeline fetcher type: {type(fetcher).__name__}")
     
-    # Run the pipeline manually and inspect results
-    result = manager._run_query_pipeline(query, [], "gpt-4o-mini")
-    print(f"Pipeline result: {result}")
-    print(f"Answer: '{result.get('answer', 'NO ANSWER')}'")
-    print(f"Sources: {len(result.get('sources', []))} sources")
+    # Test non-crawling pipeline creation
+    print("Creating non-crawling pipeline...")
+    single_pipeline = create_url_indexing_pipeline(
+        document_store=document_store,
+        enable_crawling=False
+    )
     
-    # Check the raw pipeline output
-    raw_result = manager.query_pipeline.run({
-        "embedder": {"text": query},
-        "prompt_builder": {
-            "question": query,
-            "conversation_history": []
-        }
-    })
-    print(f"Raw pipeline result keys: {list(raw_result.keys())}")
-    for key, value in raw_result.items():
-        print(f"  {key}: {type(value)} - {str(value)[:100]}...")
+    # Check fetcher component type
+    fetcher2 = single_pipeline.get_component("fetcher")
+    print(f"Single-page pipeline fetcher type: {type(fetcher2).__name__}")
+    
+    # Test running the crawling pipeline
+    print("Testing crawling pipeline run...")
+    try:
+        result = crawling_pipeline.run({
+            "fetcher": {
+                "urls": ["https://httpbin.org/html"]
+            }
+        })
+        print(f"Pipeline run successful! Result keys: {list(result.keys())}")
+        
+        writer_result = result.get("writer", {})
+        doc_count = writer_result.get("documents_written", 0)
+        print(f"Documents written: {doc_count}")
+        
+    except Exception as e:
+        print(f"Error running pipeline: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
-    asyncio.run(debug_pipeline())
+    test_pipeline_creation()

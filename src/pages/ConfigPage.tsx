@@ -48,6 +48,10 @@ export default function ConfigPage() {
   // URL Ingestion state
   const [urlInput, setUrlInput] = useState('');
   const [isIngestingUrl, setIsIngestingUrl] = useState(false);
+  const [enableCrawling, setEnableCrawling] = useState(true);
+  const [maxDepth, setMaxDepth] = useState<number>(1);
+  const [maxPages, setMaxPages] = useState<number>(10);
+  const [followExternalLinks, setFollowExternalLinks] = useState(false);
   const [ingestionProgress, setIngestionProgress] = useState(0);
   const [ingestionLogs, setIngestionLogs] = useState<string[]>([]);
   const [showIngestionConsole, setShowIngestionConsole] = useState(false);
@@ -210,12 +214,22 @@ export default function ConfigPage() {
       addIngestionLog('📡 Sending request to RAG service...');
       setIngestionProgress(20);
 
+      const requestBody = {
+        url: urlInput.trim(),
+        enable_crawling: enableCrawling,
+        max_depth: enableCrawling ? maxDepth : 0,
+        max_pages: enableCrawling ? maxPages : 1,
+        follow_external_links: enableCrawling ? followExternalLinks : false
+      };
+
+      addIngestionLog(`🔧 Crawling settings: depth=${requestBody.max_depth}, pages=${requestBody.max_pages}, external=${requestBody.follow_external_links}`);
+
       const response = await fetch('/api/rag/ingest/url', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url: urlInput.trim() }),
+        body: JSON.stringify(requestBody),
       });
 
       addIngestionLog('📥 Response received from server');
@@ -595,6 +609,87 @@ export default function ConfigPage() {
                     )}
                   </Button>
                 </div>
+
+                {/* Crawling Options */}
+                <div className="p-4 border rounded-lg space-y-4 bg-muted/30">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-medium">Web Crawling Options</h4>
+                      <p className="text-xs text-muted-foreground">Configure how links should be followed</p>
+                    </div>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={enableCrawling}
+                        onChange={(e) => setEnableCrawling(e.target.checked)}
+                        disabled={isIngestingUrl}
+                        className="rounded"
+                      />
+                      <span className="text-sm">Enable crawling</span>
+                    </label>
+                  </div>
+
+                  {enableCrawling && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Max Depth</label>
+                        <Select
+                          value={maxDepth.toString()}
+                          onValueChange={(value) => setMaxDepth(parseInt(value))}
+                          disabled={isIngestingUrl}
+                        >
+                          <SelectTrigger className="h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="0">0 (Single page only)</SelectItem>
+                            <SelectItem value="1">1 (One level deep)</SelectItem>
+                            <SelectItem value="2">2 (Two levels deep)</SelectItem>
+                            <SelectItem value="3">3 (Three levels deep)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground mt-1">How many link levels to follow</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Max Pages</label>
+                        <Select
+                          value={maxPages.toString()}
+                          onValueChange={(value) => setMaxPages(parseInt(value))}
+                          disabled={isIngestingUrl}
+                        >
+                          <SelectTrigger className="h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="5">5 pages</SelectItem>
+                            <SelectItem value="10">10 pages</SelectItem>
+                            <SelectItem value="25">25 pages</SelectItem>
+                            <SelectItem value="50">50 pages</SelectItem>
+                            <SelectItem value="100">100 pages</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground mt-1">Maximum pages to crawl</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium mb-1">External Links</label>
+                        <div className="flex items-center space-x-2 h-8">
+                          <input
+                            type="checkbox"
+                            checked={followExternalLinks}
+                            onChange={(e) => setFollowExternalLinks(e.target.checked)}
+                            disabled={isIngestingUrl}
+                            className="rounded"
+                          />
+                          <span className="text-xs">Follow external domains</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">Include links to other websites</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="text-sm text-muted-foreground">
                   Supported: Web pages, documentation sites, articles, and other text-based content.
                 </div>

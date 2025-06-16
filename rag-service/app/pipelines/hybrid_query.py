@@ -66,11 +66,15 @@ def create_hybrid_query_pipeline(document_store, model: str = None, provider: st
         top_k=settings.TOP_K_RETRIEVAL,
         weights=[settings.BM25_WEIGHT, settings.EMBEDDING_WEIGHT]
     ))
+
+    # Optional score gate after join to filter weak hits and cap docs
+    from app.components.score_filter import ScoreFilter
+    pipeline.add_component("score_filter", ScoreFilter(threshold=0.05, top_k=settings.TOP_K_RERANKING))
     
     # Add ranker for reranking
     pipeline.add_component("ranker", SentenceTransformersSimilarityRanker(
         model=settings.RERANKER_MODEL,
-        top_k=settings.TOP_K_RETRIEVAL
+        top_k=settings.TOP_K_RERANKING
     ))
     
     # Add prompt builder
@@ -127,11 +131,13 @@ Answer:"""
         pipeline.connect("embedder.embedding", "embedding_retriever.query_embedding")
         pipeline.connect("bm25_retriever.documents", "joiner.documents")
         pipeline.connect("embedding_retriever.documents", "joiner.documents")
-        pipeline.connect("joiner.documents", "ranker.documents")
+        pipeline.connect("joiner.documents", "score_filter.documents")
+        pipeline.connect("score_filter.documents", "ranker.documents")
     else:
         # Connect for embedding-only retrieval
         pipeline.connect("embedder.embedding", "embedding_retriever.query_embedding")
-        pipeline.connect("embedding_retriever.documents", "ranker.documents")
+        pipeline.connect("embedding_retriever.documents", "score_filter.documents")
+        pipeline.connect("score_filter.documents", "ranker.documents")
     
     # Connect ranker to prompt builder
     pipeline.connect("ranker.documents", "prompt_builder.documents")

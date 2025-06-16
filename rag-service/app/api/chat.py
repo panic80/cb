@@ -5,6 +5,7 @@ from typing import AsyncGenerator, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
+from openai import BadRequestError, NotFoundError
 
 from app.models.schemas import ChatRequest, ChatResponse, ErrorResponse
 from app.pipelines.manager import PipelineManager
@@ -95,22 +96,38 @@ async def chat(
                 model=request.model,
                 provider=request.provider.value,
                 retrieval_mode=request.retrieval_mode.value,
-                filters=request.filters
+                filters=request.filters,
+                query_config=request.query_config
             )
             
             return ChatResponse(
                 response=result["answer"],
                 sources=result.get("sources", []),
                 conversation_id=result["conversation_id"],
-                model=request.model
+                model=request.model,
+                confidence_score=float(result.get("confidence_score")) if result.get("confidence_score") is not None else None,
+                metadata=result.get("metadata")
             )
             
     except Exception as e:
         logger.error(f"Chat error: {e}", exc_info=True)
+        status_code = 500
+        error_type = "chat_error"
+        message = str(e)
+
+        if isinstance(e, BadRequestError):
+            status_code = 400
+            error_type = "bad_request_error"
+            message = e.message if hasattr(e, 'message') else str(e)
+        elif isinstance(e, NotFoundError):
+            status_code = 404
+            error_type = "model_not_found"
+            message = e.message if hasattr(e, 'message') else str(e)
+        
         raise HTTPException(
-            status_code=500,
+            status_code=status_code,
             detail=ErrorResponse(
-                error="chat_error",
-                message=str(e)
+                error=error_type,
+                message=message
             ).model_dump()
         )

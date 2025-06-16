@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 from haystack import Pipeline, Document, component
@@ -20,6 +20,7 @@ from app.components.table_aware_splitter import TableAwareDocumentSplitter
 from app.components.semantic_splitter import SemanticDocumentSplitter
 from app.components.propositions_splitter import PropositionsDocumentSplitter
 from haystack.components.fetchers import LinkContentFetcher
+from app.components.web_crawler import WebCrawler
 from haystack.components.joiners import DocumentJoiner
 from haystack.document_stores.types import DuplicatePolicy
 from haystack.utils import Secret
@@ -96,15 +97,38 @@ def create_indexing_pipeline(document_store) -> Pipeline:
     return pipeline
 
 
-def create_url_indexing_pipeline(document_store) -> Pipeline:
-    """Create a pipeline for indexing URLs using Haystack's built-in components."""
-    logger.info("Creating URL indexing pipeline...")
+def create_url_indexing_pipeline(
+    document_store, 
+    enable_crawling: bool = True,
+    max_depth: Optional[int] = None,
+    max_pages: Optional[int] = None,
+    follow_external_links: Optional[bool] = None
+) -> Pipeline:
+    """Create a pipeline for indexing URLs with optional crawling support."""
+    logger.info(f"Creating URL indexing pipeline with crawling={'enabled' if enable_crawling else 'disabled'}...")
     
     # Create pipeline
     pipeline = Pipeline()
     
-    # Add Haystack's built-in URL fetcher
-    pipeline.add_component("fetcher", LinkContentFetcher())
+    # Add URL fetcher (crawling or single URL)
+    if enable_crawling:
+        # Use provided settings or fall back to config defaults
+        crawler_settings = {
+            "max_depth": max_depth if max_depth is not None else settings.CRAWL_MAX_DEPTH,
+            "max_pages": max_pages if max_pages is not None else settings.CRAWL_MAX_PAGES,
+            "delay": settings.CRAWL_DELAY,
+            "respect_robots_txt": settings.CRAWL_RESPECT_ROBOTS,
+            "follow_external_links": follow_external_links if follow_external_links is not None else settings.CRAWL_FOLLOW_EXTERNAL,
+            "timeout": settings.CRAWL_TIMEOUT,
+            "max_file_size": settings.CRAWL_MAX_FILE_SIZE_BYTES,
+            "user_agent": settings.CRAWL_USER_AGENT,
+        }
+        
+        logger.info(f"Creating WebCrawler with settings: {crawler_settings}")
+        pipeline.add_component("fetcher", WebCrawler(**crawler_settings))
+    else:
+        # Use simple LinkContentFetcher for single URL processing
+        pipeline.add_component("fetcher", LinkContentFetcher())
     
     # Add custom table-aware HTML converter 
     pipeline.add_component("converter", TableAwareHTMLConverter())
