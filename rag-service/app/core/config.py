@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     
     # Model Configuration
     EMBEDDING_MODEL: str = Field(default="text-embedding-3-large", description="OpenAI embedding model")
-    LLM_MODEL: str = Field(default="gpt-4o-mini", description="OpenAI LLM model")
+    LLM_MODEL: str = Field(default="o4-mini", description="OpenAI LLM model")
     MAX_TOKENS: int = Field(default=4096, description="Maximum tokens for LLM response")
     
     # Security

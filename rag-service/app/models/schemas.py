@@ -21,7 +21,7 @@ class RetrievalMode(str, Enum):
 class ChatRequest(BaseModel):
     """Chat request model."""
     message: str = Field(..., description="User message")
-    model: Optional[str] = Field(default="gpt-4o-mini", description="Model to use")
+    model: Optional[str] = Field(default="o4-mini", description="Model to use")
     provider: Optional[Provider] = Field(default=Provider.OPENAI, description="LLM provider")
     conversation_id: Optional[str] = Field(default=None, description="Conversation ID for context")
     stream: bool = Field(default=True, description="Enable streaming response")
