@@ -31,29 +31,35 @@ def create_query_pipeline(document_store, model: str = None, provider: str = Non
     ))
     
     # Add retriever based on document store type
+    # Fetch a wider first-pass candidate set (3 × TOP_K_RETRIEVAL) so that later
+    # filtering / reranking can pick the truly relevant hits.
+    initial_top_k = settings.TOP_K_RETRIEVAL * 3
+
     if isinstance(document_store, InMemoryDocumentStore):
         pipeline.add_component("retriever", InMemoryEmbeddingRetriever(
             document_store=document_store,
-            top_k=settings.TOP_K_RETRIEVAL
+            top_k=initial_top_k
         ))
     else:
         # Use PgvectorEmbeddingRetriever for pgvector document store
         pipeline.add_component("retriever", PgvectorEmbeddingRetriever(
             document_store=document_store,
-            top_k=settings.TOP_K_RETRIEVAL
+            top_k=initial_top_k
         ))
+
+    # Score-floor filter to remove very low-similarity matches before prompt
+    from app.components.score_filter import ScoreFilter  # local import to avoid cycles
+    pipeline.add_component("score_filter", ScoreFilter(threshold=0.05, top_k=settings.TOP_K_RERANKING))
     
-    # Add prompt builder with generic formatting instructions
+    # Add prompt builder with focused instructions
     prompt_template = """
 You are a helpful AI assistant. Use the following context to answer the user's question accurately and concisely.
 
-FORMATTING GUIDELINES:
-- Provide clear, well-structured responses
-- Use appropriate line breaks to separate distinct information
-- When presenting lists or multiple items, use bullet points or numbered lists
-- Separate different categories or sections with clear headings when applicable
-- Ensure each piece of information is distinct and not merged with unrelated content
-- Use proper spacing between sections for readability
+GUIDELINES:
+- Focus on directly answering the specific question asked
+- Be concise but complete in your response
+- Use clear formatting when presenting multiple points or items
+- If the context doesn't fully answer the question, acknowledge what's missing
 
 Context:
 {% for doc in documents %}
@@ -64,7 +70,7 @@ Source: {{ doc.meta.source }}
 {% endfor %}
 
 {% if conversation_history %}
-Conversation History:
+Previous conversation:
 {% for message in conversation_history %}
 {{ message.role }}: {{ message.content }}
 {% endfor %}
@@ -76,15 +82,19 @@ Answer:"""
     
     pipeline.add_component("prompt_builder", PromptBuilder(template=prompt_template))
     
-    # Add generator
+    # Add generator - some models don't support custom temperature
+    generation_kwargs = {
+        "max_completion_tokens": settings.MAX_TOKENS
+    }
+    
+    # Only add temperature for models that support it
+    if not llm_model.startswith(("o1-", "o4-")):
+        generation_kwargs["temperature"] = settings.TEMPERATURE
+    
     pipeline.add_component("generator", OpenAIGenerator(
         api_key=Secret.from_token(settings.OPENAI_API_KEY),
         model=llm_model,
-        generation_kwargs={
-            "temperature": settings.TEMPERATURE,
-            "max_tokens": settings.MAX_TOKENS
-            # Removed stream parameter to avoid conflict with Haystack's built-in streaming
-        }
+        generation_kwargs=generation_kwargs
     ))
     
     # Add answer builder to format the response
@@ -92,10 +102,11 @@ Answer:"""
     
     # Connect components
     pipeline.connect("embedder.embedding", "retriever.query_embedding")
-    pipeline.connect("retriever.documents", "prompt_builder.documents")
+    pipeline.connect("retriever.documents", "score_filter.documents")
+    pipeline.connect("score_filter.documents", "prompt_builder.documents")
     pipeline.connect("prompt_builder.prompt", "generator.prompt")
     pipeline.connect("generator.replies", "answer_builder.replies")
-    pipeline.connect("retriever.documents", "answer_builder.documents")
+    pipeline.connect("score_filter.documents", "answer_builder.documents")
     
     logger.info("Query pipeline created successfully")
     return pipeline

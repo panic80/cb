@@ -9,6 +9,7 @@ import {
   EnvelopeIcon,
   ShieldCheckIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
   UserGroupIcon,
   CogIcon,
   WrenchScrewdriverIcon
@@ -249,35 +250,32 @@ export default function LandingPage() {
                   Essential Tools & Resources
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 lg:gap-8 max-w-screen-2xl mx-auto">
-                  {/* Policy Assistant Card - Disabled */}
-                  <div
-                    className={`group glass rounded-2xl p-4 sm:p-6 md:p-8 transition-all duration-1000 transform w-full md:min-w-[350px] cursor-not-allowed opacity-60 ${
-                      featuresVisible ? 'translate-y-0 opacity-60' : 'translate-y-10 opacity-0'
+                  {/* Policy Assistant Card */}
+                  <Link
+                    to="/chat"
+                    className={`group card-hover glass rounded-2xl p-4 sm:p-6 md:p-8 transition-all duration-1000 transform w-full md:min-w-[350px] ${
+                      featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
                     }`}
                     style={{ transitionDelay: '0.2s' }}
-                    aria-label="Policy Chat - Currently Unavailable"
-                    title="Policy Assistant is temporarily unavailable for updates"
+                    aria-label="Policy Chat - Ask questions about policies"
                   >
                     <div className="flex flex-col items-center text-center space-y-4 sm:space-y-6">
                       <div className="relative">
-                        <div className="absolute inset-0 bg-gray-400 opacity-10 rounded-full blur-xl" />
-                        <div className="relative">
-                          <QuestionMarkCircleIcon className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 text-gray-400" aria-hidden="true" />
+                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
+                        <div className="relative transform transition-all duration-500 group-hover:scale-110">
+                          <QuestionMarkCircleIcon className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 text-[var(--primary)]" aria-hidden="true" />
                         </div>
                       </div>
                       <div className="space-y-3 sm:space-y-4">
-                        <h3 className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-500">
+                        <h3 className="text-lg sm:text-xl md:text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
                           Policy Assistant
                         </h3>
-                        <p className="text-sm sm:text-base text-gray-500 leading-relaxed">
+                        <p className="text-sm sm:text-base text-[var(--text)] opacity-80 leading-relaxed">
                           Interactive AI-powered guide for policy inquiries and administrative procedures.
-                          <span className="block text-orange-600 mt-2 font-medium text-xs sm:text-sm">
-                            🔧 Temporarily Unavailable for <span className="font-bold">Major Upgrades</span>
-                          </span>
                         </p>
                       </div>
                     </div>
-                  </div>
+                  </Link>
 
                   {/* SCIP Portal Card */}
                   <a

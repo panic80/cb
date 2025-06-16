@@ -28,8 +28,9 @@ class Settings(BaseSettings):
     CHROMA_PERSIST_PATH: str = Field(default="./chroma_db", description="Chroma persistence path")
     
     # Document Processing
-    CHUNK_SIZE: int = Field(default=500, description="Document chunk size in tokens")
-    CHUNK_OVERLAP: int = Field(default=150, description="Document chunk overlap in tokens")
+    # Smaller chunks and less overlap to reduce semantic dilution
+    CHUNK_SIZE: int = Field(default=350, description="Document chunk size in tokens")
+    CHUNK_OVERLAP: int = Field(default=50, description="Document chunk overlap in tokens")
     MAX_FILE_SIZE_MB: int = Field(default=100, description="Maximum file size in MB")
     
     # Chunking Strategy Configuration
@@ -55,16 +56,41 @@ class Settings(BaseSettings):
     LOG_FILE: str = Field(default="rag_service.log", description="Log file path")
     
     # RAG Pipeline Configuration
-    TOP_K_RETRIEVAL: int = Field(default=5, description="Number of documents to retrieve")
+    TOP_K_RETRIEVAL: int = Field(default=30, description="Number of documents to retrieve")
+    TOP_K_RERANKING: int = Field(default=10, description="Number of documents after reranking")
     TEMPERATURE: float = Field(default=0.7, description="LLM temperature")
     
     # Retrieval Configuration
     DEFAULT_RETRIEVAL_MODE: str = Field(default="hybrid", description="Default retrieval mode: embedding, bm25, hybrid")
+    # Balance lexical and semantic contributions
     BM25_WEIGHT: float = Field(default=0.5, description="Weight for BM25 in hybrid retrieval (0-1)")
     EMBEDDING_WEIGHT: float = Field(default=0.5, description="Weight for embedding in hybrid retrieval (0-1)")
     RERANKER_MODEL: str = Field(default="cross-encoder/ms-marco-MiniLM-L-6-v2", description="Model for reranking")
     ENABLE_METADATA_RANKING: bool = Field(default=True, description="Enable metadata-based ranking")
     METADATA_RANKING_WEIGHT: float = Field(default=0.3, description="Weight for metadata ranking (0-1)")
+    
+    # Enhanced Pipeline Configuration
+    # Use the richer enhanced pipeline by default
+    USE_ENHANCED_PIPELINE: bool = Field(default=True, description="Use enhanced pipeline by default")
+    ENABLE_QUERY_EXPANSION: bool = Field(default=True, description="Enable query expansion")
+    ENABLE_SOURCE_FILTERING: bool = Field(default=True, description="Enable source-aware filtering")
+    ENABLE_DIVERSITY_RANKING: bool = Field(default=True, description="Enable diversity ranking")
+    MAX_SOURCES_PER_QUERY: int = Field(default=1, description="Maximum sources per query result")
+    
+    # Web Crawling Configuration
+    CRAWL_MAX_DEPTH: int = Field(default=1, description="Maximum crawling depth (0 = single page, 1 = one level deep)")
+    CRAWL_MAX_PAGES: int = Field(default=10, description="Maximum number of pages to crawl per URL")
+    CRAWL_DELAY: float = Field(default=1.0, description="Delay between requests in seconds")
+    CRAWL_RESPECT_ROBOTS: bool = Field(default=True, description="Respect robots.txt rules")
+    CRAWL_FOLLOW_EXTERNAL: bool = Field(default=False, description="Follow links to external domains")
+    CRAWL_TIMEOUT: int = Field(default=30, description="Request timeout in seconds")
+    CRAWL_MAX_FILE_SIZE_MB: int = Field(default=10, description="Maximum file size to download in MB")
+    CRAWL_USER_AGENT: str = Field(default="Haystack WebCrawler/1.0", description="User agent for web requests")
+    
+    @property
+    def CRAWL_MAX_FILE_SIZE_BYTES(self) -> int:
+        """Get max crawl file size in bytes."""
+        return self.CRAWL_MAX_FILE_SIZE_MB * 1024 * 1024
     
     @property
     def MAX_FILE_SIZE_BYTES(self) -> int:

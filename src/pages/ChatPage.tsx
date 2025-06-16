@@ -3,14 +3,15 @@ import { Send, Settings, Copy, RefreshCw, Sparkles, Command as CommandIcon, Arro
 import { motion, AnimatePresence, useMotionValue, useTransform, useSpring } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import MarkdownRenderer from '@/components/ui/markdown-renderer';
-import FollowUpQuestions from '@/components/FollowUpQuestions';
+import SuggestionController from '@/components/SuggestionController';
+import { useSuggestionVisibility } from '@/hooks/useSuggestionVisibility';
 import { cn } from '@/lib/utils';
 import { parseApiResponse } from '../utils/chatUtils';
 import { getModelDisplayName, DEFAULT_MODEL_ID } from '../constants/models';
@@ -68,9 +69,13 @@ const ChatPage: React.FC = () => {
   const [commandFilter, setCommandFilter] = useState('');
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
+  const [showHelpDialog, setShowHelpDialog] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  
+  // Initialize suggestion visibility manager
+  const suggestionManager = useSuggestionVisibility();
   
   // Motion values for interactive animations
   const mouseX = useMotionValue(0);
@@ -233,8 +238,37 @@ const ChatPage: React.FC = () => {
       const markdownPattern = /```|\n\s*#|\*\*|\n\s*[-*+]\s/;
       const isMarkdown = markdownPattern.test(aiResponse);
 
+      // Generate follow-up questions before displaying the message
+      let followUpQuestions: FollowUpQuestion[] = [];
+      try {
+        const mappedSources = sources.map((source: any) => ({
+          text: source.content_preview || source.text || '',
+          reference: source.title || source.source || source.reference || ''
+        }));
+
+        followUpQuestions = await generateFollowUpQuestions({
+          userQuestion: currentInput,
+          aiResponse: aiResponse.trim(),
+          sources: mappedSources,
+          conversationHistory: messages.slice(-4).map(msg => ({
+            role: msg.sender === 'user' ? 'user' : 'assistant',
+            content: msg.content
+          }))
+        });
+      } catch (followUpError) {
+        console.error('Failed to generate follow-up questions:', followUpError);
+        // Continue without follow-up questions if generation fails
+      }
+
+      // Create the complete message with both answer and follow-up questions
+      const messageId = (Date.now() + 1).toString();
+      const followUpQuestionObjects: FollowUpQuestion[] = followUpQuestions.map((q, index) => ({
+        ...q,
+        id: q.id || `${messageId}-fu-${index}`,
+      }));
+
       const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: messageId,
         content: aiResponse.trim(),
         sender: 'assistant',
         timestamp: Date.now(),
@@ -242,37 +276,13 @@ const ChatPage: React.FC = () => {
         sources: sources.map((source: any) => ({
           text: source.content_preview || source.text || '',
           reference: source.title || source.source || source.reference || ''
-        }))
+        })),
+        followUpQuestions: followUpQuestionObjects.length > 0 ? followUpQuestionObjects : undefined
       };
 
-      // Add the complete message
+      // Add the complete message with everything ready
       setMessages(prev => [...prev, aiMessage]);
       setIsLoading(false);
-
-      // Generate follow-up questions asynchronously
-      try {
-        const followUpQuestions = await generateFollowUpQuestions({
-          userQuestion: currentInput,
-          aiResponse: aiResponse.trim(),
-          sources: aiMessage.sources,
-          conversationHistory: messages.slice(-4).map(msg => ({
-            role: msg.sender === 'user' ? 'user' : 'assistant',
-            content: msg.content
-          }))
-        });
-
-        if (followUpQuestions.length > 0) {
-          // Update the message with follow-up questions
-          setMessages(prev => prev.map(msg => 
-            msg.id === aiMessage.id 
-              ? { ...msg, followUpQuestions }
-              : msg
-          ));
-        }
-      } catch (followUpError) {
-        console.error('Failed to generate follow-up questions:', followUpError);
-        // Don't fail the main response if follow-up generation fails
-      }
     } catch (error) {
       console.error('Error calling RAG service:', error);
       
@@ -605,43 +615,14 @@ const ChatPage: React.FC = () => {
                 transition={{ duration: 0.5 }}
               >
                 <div className="text-center max-w-2xl mx-auto">
-                  <motion.div 
-                    className="w-20 h-20 mx-auto mb-6 bg-[var(--primary)] rounded-2xl flex items-center justify-center shadow-2xl"
-                    style={{
-                      filter: 'drop-shadow(0 0 15px rgba(var(--primary-rgb), 0.3))',
-                      rotateX,
-                      rotateY,
-                      transformPerspective: 1000,
-                    }}
-                    initial={{ scale: 0, rotate: -180 }}
-                    animate={{ scale: 1, rotate: 0 }}
-                    transition={{ 
-                      type: "spring",
-                      stiffness: 260,
-                      damping: 20,
-                      delay: 0.1
-                    }}
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <Sparkles size={32} className="text-white" />
-                  </motion.div>
                   <motion.h2 
-                    className="text-3xl font-bold mb-3 gradient-text"
+                    className="text-3xl font-bold mb-8 gradient-text"
                     initial={{ y: 20, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
                     transition={{ delay: 0.2 }}
                   >
                     How can I help you today?
                   </motion.h2>
-                  <motion.p 
-                    className="text-[var(--text-secondary)] mb-8 text-lg glass p-6 rounded-2xl"
-                    initial={{ y: 20, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    transition={{ delay: 0.3 }}
-                  >
-                    I'm your Policy Assistant. I can help with travel instructions, claims processing, and administrative policy questions.
-                  </motion.p>
                   <motion.div 
                     className="grid grid-cols-1 sm:grid-cols-2 gap-4"
                     initial="hidden"
@@ -766,16 +747,16 @@ const ChatPage: React.FC = () => {
                                   
                                   {shouldTruncate && (
                                     <motion.button
-                                      className="mt-2 text-sm font-medium opacity-80 hover:opacity-100 transition-opacity flex items-center gap-1"
+                                      className="mt-3 px-3 py-1.5 text-sm font-medium bg-[var(--primary)] text-white rounded-full hover:bg-[var(--primary-hover)] transition-all duration-200 flex items-center gap-1.5 shadow-sm hover:shadow-md"
                                       onClick={() => toggleMessageExpansion(message.id)}
                                       whileHover={{ scale: 1.05 }}
                                       whileTap={{ scale: 0.95 }}
                                     >
                                       {isExpanded ? 'Show less' : 'Read more'}
                                       <ChevronDown 
-                                        size={14} 
+                                        size={16} 
                                         className={cn(
-                                          "transition-transform",
+                                          "transition-transform duration-200",
                                           isExpanded ? "rotate-180" : ""
                                         )}
                                       />
@@ -821,11 +802,13 @@ const ChatPage: React.FC = () => {
                           </CardContent>
                         </Card>
                         
-                        {/* Follow-up Questions */}
+                        {/* Enhanced Follow-up Questions with Smart Progressive Disclosure */}
                         {message.sender === 'assistant' && message.followUpQuestions && message.followUpQuestions.length > 0 && (
-                          <FollowUpQuestions 
+                          <SuggestionController 
                             questions={message.followUpQuestions}
                             onQuestionClick={handleFollowUpClick}
+                            messageId={message.id}
+                            isLatestMessage={messageIndex === messages.length - 1}
                             className="mt-4"
                           />
                         )}
@@ -1027,14 +1010,13 @@ const ChatPage: React.FC = () => {
                     )}
                   </AnimatePresence>
                   
-                  <Textarea
+                  <Input
                     ref={inputRef}
                     value={input}
                     onChange={handleInputChange}
                     onKeyDown={handleKeyPress}
-                    placeholder="Message Policy Assistant... (Type / for commands)"
-                    className="min-h-[64px] resize-none pr-32 pl-4 rounded-3xl border-[var(--border)] bg-[var(--card)] glass focus:bg-[var(--background-secondary)] transition-all duration-300 text-base leading-relaxed text-[var(--text)] placeholder:text-[var(--text-secondary)]"
-                    rows={1}
+                    placeholder="Message Policy Assistant..."
+                    className="h-[64px] pr-32 pl-4 rounded-3xl border-[var(--border)] bg-[var(--card)] glass focus:bg-[var(--background-secondary)] transition-all duration-300 text-base text-[var(--text)] placeholder:text-[var(--text-secondary)]"
                   />
                   
                   {/* Action Buttons */}
@@ -1110,6 +1092,24 @@ const ChatPage: React.FC = () => {
                       </Tooltip>
                     </motion.div>
                     
+                    <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 rounded-xl"
+                            onClick={() => setShowHelpDialog(true)}
+                          >
+                            <HelpCircle size={16} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Help</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </motion.div>
+                    
                     <motion.div
                       whileHover={{ scale: 1.1 }}
                       whileTap={{ scale: 0.9 }}
@@ -1139,22 +1139,118 @@ const ChatPage: React.FC = () => {
               >
                 <span>Policy Assistant can make mistakes. Please double-check responses.</span>
                 <span className="text-[var(--text-secondary)]/60">•</span>
-                <span className="text-[var(--text-secondary)]/80">Press ⌘K for commands</span>
-                <span className="text-[var(--text-secondary)]/60">•</span>
-                <span className="text-[var(--text-secondary)]/80">Type / for inline commands</span>
-              </motion.div>
-              <motion.div 
-                className="text-xs text-[var(--text-secondary)]/70 text-center mt-2"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.7 }}
-                transition={{ delay: 0.6 }}
-              >
-                <span>Powered by LlamaIndex & {currentModel}</span>
+                <span className="text-[var(--text-secondary)]/70">Powered by Haystack & {currentModel}</span>
               </motion.div>
             </div>
           </motion.div>
         </div>
       </div>
+
+      {/* Help Dialog */}
+      <Dialog open={showHelpDialog} onOpenChange={setShowHelpDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto glass border-[var(--border)] bg-[var(--card)]">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-[var(--text)] flex items-center gap-2">
+              <HelpCircle size={24} className="text-[var(--primary)]" />
+              Policy Assistant Help
+            </DialogTitle>
+            <DialogDescription className="text-[var(--text-secondary)] text-base">
+              Learn how to effectively use the Policy Assistant for your administrative needs.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 text-[var(--text)]">
+            {/* What it does */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3 text-[var(--primary)]">What is the Policy Assistant?</h3>
+              <p className="text-[var(--text-secondary)] leading-relaxed">
+                The Policy Assistant is an AI-powered guide designed to help you navigate policies, procedures, and administrative requirements. 
+                It can answer questions about regulations, benefits, claims, travel procedures, and more.
+              </p>
+            </div>
+
+            {/* Question types */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3 text-[var(--primary)]">What can you ask about?</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <h4 className="font-medium text-[var(--text)]">Travel & Claims</h4>
+                  <ul className="text-sm text-[var(--text-secondary)] space-y-1">
+                    <li>• Travel duty (TD) claims</li>
+                    <li>• Expense reimbursements</li>
+                    <li>• Travel allowances</li>
+                    <li>• Accommodation policies</li>
+                  </ul>
+                </div>
+                <div className="space-y-2">
+                  <h4 className="font-medium text-[var(--text)]">Benefits & Pay</h4>
+                  <ul className="text-sm text-[var(--text-secondary)] space-y-1">
+                    <li>• Military benefits</li>
+                    <li>• Leave policies</li>
+                    <li>• Pay and allowances</li>
+                    <li>• Pension information</li>
+                  </ul>
+                </div>
+                <div className="space-y-2">
+                  <h4 className="font-medium text-[var(--text)]">Administrative</h4>
+                  <ul className="text-sm text-[var(--text-secondary)] space-y-1">
+                    <li>• Unit procedures</li>
+                    <li>• Forms and applications</li>
+                    <li>• Contact information</li>
+                    <li>• Regulations and directives</li>
+                  </ul>
+                </div>
+                <div className="space-y-2">
+                  <h4 className="font-medium text-[var(--text)]">General Inquiries</h4>
+                  <ul className="text-sm text-[var(--text-secondary)] space-y-1">
+                    <li>• Policy clarifications</li>
+                    <li>• Process explanations</li>
+                    <li>• Document requirements</li>
+                    <li>• Timeline questions</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* Example questions */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3 text-[var(--primary)]">Example Questions</h3>
+              <div className="bg-[var(--background-secondary)] rounded-lg p-4 space-y-2">
+                <div className="text-sm text-[var(--text-secondary)]">
+                  <p>• "What are the TD claim requirements for travel over 12 hours?"</p>
+                  <p>• "How do I submit a claim for meal expenses during travel?"</p>
+                  <p>• "What documents do I need for a posting allowance?"</p>
+                  <p>• "Who do I contact for FSC services at my unit?"</p>
+                  <p>• "What is the maximum accommodation rate for TD travel?"</p>
+                  <p>• "How long does it take to process a benefits claim?"</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Tips */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3 text-[var(--primary)]">Tips for Better Results</h3>
+              <div className="space-y-2 text-[var(--text-secondary)]">
+                <p>• <strong>Be specific:</strong> Include details like timeframes, amounts, or specific policies</p>
+                <p>• <strong>Ask follow-up questions:</strong> If you need clarification, don't hesitate to ask for more details</p>
+                <p>• <strong>Use clear language:</strong> Simple, direct questions often get the best responses</p>
+                <p>• <strong>Check sources:</strong> Review the provided sources for official documentation</p>
+              </div>
+            </div>
+
+            {/* Disclaimer */}
+            <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4">
+              <div className="flex items-start gap-2">
+                <div className="text-orange-600 dark:text-orange-400 mt-0.5">⚠️</div>
+                <div className="text-sm text-orange-800 dark:text-orange-200">
+                  <strong>Important:</strong> Always verify critical information with official sources or your unit's administrative staff. 
+                  This assistant provides guidance but should not replace official policy documents.
+                </div>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   );
 };

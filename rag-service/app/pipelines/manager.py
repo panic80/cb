@@ -29,7 +29,9 @@ from app.pipelines.indexing import (
 )
 from app.pipelines.query import create_query_pipeline
 from app.pipelines.hybrid_query import create_hybrid_query_pipeline, create_filtered_query_pipeline
-from app.services.document_store import DocumentStoreService
+from app.pipelines.enhanced_query import create_enhanced_query_pipeline
+from app.services.document_store import DocumentStoreService, InMemorySourceMetadataStore, DatabaseSourceMetadataStore
+from app.services.conversation_store import ConversationStore, InMemoryConversationStore, DatabaseConversationStore
 from app.components.semantic_splitter import SemanticDocumentSplitter
 from app.components.propositions_splitter import PropositionsDocumentSplitter
 from app.components.table_aware_splitter import TableAwareDocumentSplitter
@@ -50,8 +52,11 @@ class PipelineManager:
         self.query_pipelines_cache: Dict[str, Pipeline] = {}
         self.hybrid_pipelines_cache: Dict[str, Pipeline] = {}
         self.filtered_pipelines_cache: Dict[str, Pipeline] = {}
+        self.enhanced_pipelines_cache: Dict[str, Pipeline] = {}
+        # Cache for file indexing pipelines by file extension
+        self.file_indexing_pipelines_cache: Dict[str, Pipeline] = {}
         self._initialized = False
-        self._conversations: Dict[str, List[Dict]] = {}
+        self.conversation_store: Optional[ConversationStore] = None
     
     async def initialize(self):
         """Initialize pipelines and document store."""
@@ -66,29 +71,64 @@ class PipelineManager:
             elif settings.VECTOR_STORE_TYPE == "pgvector":
                 if not settings.DATABASE_URL:
                     raise ValueError("DATABASE_URL is required for pgvector document store")
-                self.document_store = PgvectorDocumentStore(
-                    connection_string=Secret.from_token(settings.DATABASE_URL),
-                    table_name="documents",
-                    embedding_dimension=3072,  # OpenAI text-embedding-3-large dimension
-                    vector_function="cosine_similarity",
-                    recreate_table=False,  # Preserve data across restarts
-                    search_strategy="exact_search"
-                )
+                
+                def _init_pg_store():
+                    """Synchronous function to initialize the document store."""
+                    logger.info("Initializing PgvectorDocumentStore...")
+                    store = PgvectorDocumentStore(
+                        connection_string=Secret.from_token(settings.DATABASE_URL),
+                        table_name="documents",
+                        embedding_dimension=3072,  # OpenAI text-embedding-3-large dimension
+                        vector_function="cosine_similarity",
+                        recreate_table=False,  # Preserve data across restarts
+                        search_strategy="exact_search"
+                    )
+                    logger.info("PgvectorDocumentStore initialized successfully.")
+                    return store
+                
+                # Run the blocking initialization in a separate thread to avoid freezing the event loop
+                loop = asyncio.get_running_loop()
+                self.document_store = await loop.run_in_executor(None, _init_pg_store)
             else:
                 # TODO: Add support for Chroma
                 raise NotImplementedError(f"Vector store type {settings.VECTOR_STORE_TYPE} not implemented yet")
             
+            # Initialize metadata store based on configuration
+            if settings.DATABASE_URL and settings.VECTOR_STORE_TYPE == "pgvector":
+                # Use database for metadata storage when using pgvector
+                metadata_store = DatabaseSourceMetadataStore(settings.DATABASE_URL)
+                logger.info("Using database metadata store")
+            else:
+                # Use in-memory store for development/testing
+                metadata_store = InMemorySourceMetadataStore()
+                logger.info("Using in-memory metadata store")
+            
             # Initialize document store service
-            self.document_store_service = DocumentStoreService(self.document_store)
+            self.document_store_service = DocumentStoreService(self.document_store, metadata_store)
+            
+            # Initialize conversation store based on configuration
+            if settings.DATABASE_URL and settings.VECTOR_STORE_TYPE == "pgvector":
+                # Use database for conversation storage when using pgvector
+                self.conversation_store = DatabaseConversationStore(settings.DATABASE_URL)
+                logger.info("Using database conversation store")
+            else:
+                # Use in-memory store for development/testing
+                self.conversation_store = InMemoryConversationStore()
+                logger.info("Using in-memory conversation store")
             
             # Create pipelines
             # We'll create specific pipelines on demand for each file type
-            self.url_indexing_pipeline = create_url_indexing_pipeline(self.document_store)
+            # Note: URL indexing pipelines are created dynamically with custom settings
+            self.url_indexing_pipeline = None  # Created on-demand
             
             # Query pipelines will be created dynamically based on model selection
             self.query_pipelines_cache = {}  # Cache for query pipelines by model
             self.hybrid_pipelines_cache = {}  # Cache for hybrid pipelines by model
             self.filtered_pipelines_cache = {}  # Cache for filtered pipelines by model
+            self.enhanced_pipelines_cache = {}  # Cache for enhanced pipelines by model
+            
+            # Pre-create file indexing pipelines for common file types
+            self._initialize_file_indexing_pipelines()
             
             self._initialized = True
             logger.info("Pipeline manager initialized successfully")
@@ -100,6 +140,10 @@ class PipelineManager:
     async def cleanup(self):
         """Cleanup resources."""
         logger.info("Cleaning up pipeline manager...")
+        if self.document_store_service:
+            await self.document_store_service.cleanup()
+        if self.conversation_store:
+            await self.conversation_store.cleanup()
         self._initialized = False
     
     def is_initialized(self) -> bool:
@@ -161,7 +205,11 @@ class PipelineManager:
     async def index_url(
         self,
         url: str,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        enable_crawling: bool = True,
+        max_depth: Optional[int] = None,
+        max_pages: Optional[int] = None,
+        follow_external_links: Optional[bool] = None
     ) -> Dict[str, Any]:
         """Index content from a URL."""
         try:
@@ -185,7 +233,11 @@ class PipelineManager:
                 None,
                 self._run_url_indexing_pipeline,
                 url,
-                doc_metadata
+                doc_metadata,
+                enable_crawling,
+                max_depth,
+                max_pages,
+                follow_external_links
             )
             
             # Store source metadata
@@ -215,7 +267,8 @@ class PipelineManager:
         model: str = "gpt-4o-mini",
         provider: str = "openai",
         retrieval_mode: str = settings.DEFAULT_RETRIEVAL_MODE,
-        filters: Optional[Dict[str, Any]] = None
+        filters: Optional[Dict[str, Any]] = None,
+        query_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Execute a query against the document store."""
         try:
@@ -226,7 +279,7 @@ class PipelineManager:
                 conversation_id = str(uuid.uuid4())
             
             # Get conversation history
-            conversation_history = self._conversations.get(conversation_id, [])
+            conversation_history = await self.conversation_store.get_conversation(conversation_id)
             
             # Run query pipeline synchronously
             result = await asyncio.get_event_loop().run_in_executor(
@@ -236,11 +289,12 @@ class PipelineManager:
                 conversation_history,
                 model,
                 retrieval_mode,
-                filters
+                filters,
+                query_config
             )
             
             # Update conversation history
-            self._conversations.setdefault(conversation_id, []).extend([
+            await self.conversation_store.add_to_conversation(conversation_id, [
                 {"role": "user", "content": query},
                 {"role": "assistant", "content": result["answer"]}
             ])
@@ -273,7 +327,7 @@ class PipelineManager:
                 conversation_id = str(uuid.uuid4())
             
             # Get conversation history
-            conversation_history = self._conversations.get(conversation_id, [])
+            conversation_history = await self.conversation_store.get_conversation(conversation_id)
             
             # Run streaming query pipeline
             full_response = ""
@@ -283,7 +337,7 @@ class PipelineManager:
                 yield chunk
             
             # Update conversation history after streaming completes
-            self._conversations.setdefault(conversation_id, []).extend([
+            await self.conversation_store.add_to_conversation(conversation_id, [
                 {"role": "user", "content": query},
                 {"role": "assistant", "content": full_response}
             ])
@@ -396,6 +450,59 @@ class PipelineManager:
         else:
             raise ValueError(f"Unknown pipeline type: {pipeline_type}")
     
+    def _get_or_create_enhanced_pipeline(
+        self,
+        model: str,
+        provider: str,
+        enable_query_expansion: bool = True,
+        enable_source_filtering: bool = True,
+        enable_diversity_ranking: bool = True
+    ) -> Pipeline:
+        """Get or create an enhanced pipeline with specific configuration."""
+        cache_key = f"{model}_{provider}_{enable_query_expansion}_{enable_source_filtering}_{enable_diversity_ranking}"
+        
+        if cache_key not in self.enhanced_pipelines_cache:
+            logger.info(f"Creating new enhanced pipeline for model: {model}")
+            self.enhanced_pipelines_cache[cache_key] = create_enhanced_query_pipeline(
+                self.document_store,
+                model=model,
+                provider=provider,
+                enable_query_expansion=enable_query_expansion,
+                enable_source_filtering=enable_source_filtering,
+                enable_diversity_ranking=enable_diversity_ranking
+            )
+        else:
+            logger.info(f"Using cached enhanced pipeline for model: {model}")
+        
+        return self.enhanced_pipelines_cache[cache_key]
+    
+    def _initialize_file_indexing_pipelines(self):
+        """Pre-create and cache file indexing pipelines for common file types."""
+        common_extensions = [
+            ".txt", ".text", ".pdf", ".html", ".htm", ".md", ".markdown",
+            ".csv", ".docx", ".doc", ".xlsx", ".xls", ".json", ".jsonl"
+        ]
+        
+        logger.info("Initializing file indexing pipelines...")
+        for ext in common_extensions:
+            try:
+                self.file_indexing_pipelines_cache[ext] = self._create_file_indexing_pipeline(ext)
+                logger.debug(f"Cached pipeline for {ext}")
+            except Exception as e:
+                logger.warning(f"Failed to create pipeline for {ext}: {e}")
+        
+        logger.info(f"Cached {len(self.file_indexing_pipelines_cache)} file indexing pipelines")
+    
+    def _get_or_create_file_indexing_pipeline(self, file_extension: str) -> Pipeline:
+        """Get cached pipeline or create new one if not found."""
+        if file_extension not in self.file_indexing_pipelines_cache:
+            logger.info(f"Creating new pipeline for uncached extension: {file_extension}")
+            self.file_indexing_pipelines_cache[file_extension] = self._create_file_indexing_pipeline(file_extension)
+        else:
+            logger.debug(f"Using cached pipeline for {file_extension}")
+        
+        return self.file_indexing_pipelines_cache[file_extension]
+    
     def _create_file_indexing_pipeline(self, file_extension: str) -> Pipeline:
         """Create a pipeline for a specific file type using Haystack's built-in converters."""
         pipeline = Pipeline()
@@ -481,8 +588,8 @@ class PipelineManager:
         from pathlib import Path
         file_extension = Path(file_path).suffix.lower()
         
-        # Create pipeline for this file type
-        pipeline = self._create_file_indexing_pipeline(file_extension)
+        # Get cached pipeline for this file type
+        pipeline = self._get_or_create_file_indexing_pipeline(file_extension)
         
         # Run the pipeline
         result = pipeline.run({
@@ -509,10 +616,36 @@ class PipelineManager:
             "document_count": doc_count
         }
     
-    def _run_url_indexing_pipeline(self, url: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Run the URL indexing pipeline synchronously using Haystack's built-in components."""
-        # Run the URL indexing pipeline with LinkContentFetcher
-        result = self.url_indexing_pipeline.run({
+    def _run_url_indexing_pipeline(
+        self, 
+        url: str, 
+        metadata: Dict[str, Any],
+        enable_crawling: bool = True,
+        max_depth: Optional[int] = None,
+        max_pages: Optional[int] = None,
+        follow_external_links: Optional[bool] = None
+    ) -> Dict[str, Any]:
+        """Run the URL indexing pipeline synchronously with custom crawling settings."""
+        
+        logger.info(f"Running {'crawling' if enable_crawling else 'single-page'} pipeline for URL: {url}")
+        logger.info(f"Crawling settings - depth: {max_depth}, pages: {max_pages}, external: {follow_external_links}")
+        
+        # Create a pipeline with the specified crawling settings
+        logger.info(f"Creating pipeline with enable_crawling={enable_crawling}")
+        pipeline = create_url_indexing_pipeline(
+            document_store=self.document_store,
+            enable_crawling=enable_crawling,
+            max_depth=max_depth,
+            max_pages=max_pages,
+            follow_external_links=follow_external_links
+        )
+        
+        # Log the component type for debugging
+        fetcher_component = pipeline.get_component("fetcher")
+        logger.info(f"Pipeline fetcher component type: {type(fetcher_component).__name__}")
+        
+        # Run the URL indexing pipeline
+        result = pipeline.run({
             "fetcher": {
                 "urls": [url]
             }
@@ -546,11 +679,77 @@ class PipelineManager:
         conversation_history: List[Dict],
         model: str,
         retrieval_mode: str = settings.DEFAULT_RETRIEVAL_MODE,
-        filters: Optional[Dict[str, Any]] = None
+        filters: Optional[Dict[str, Any]] = None,
+        query_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Run the query pipeline synchronously."""
         # Default provider to openai if not specified
         provider = "openai"  # Currently only OpenAI is supported by Haystack
+        
+        # Parse query configuration - use settings defaults if not specified
+        config = query_config or {}
+        use_enhanced = config.get("use_enhanced_pipeline", settings.USE_ENHANCED_PIPELINE)
+        enable_query_expansion = config.get("enable_query_expansion", settings.ENABLE_QUERY_EXPANSION)
+        enable_source_filtering = config.get("enable_source_filtering", settings.ENABLE_SOURCE_FILTERING)
+        enable_diversity_ranking = config.get("enable_diversity_ranking", settings.ENABLE_DIVERSITY_RANKING)
+        source_filters = config.get("source_filters", None)
+        preferred_sources = config.get("preferred_sources", None)
+        
+        # Use enhanced pipeline if requested
+        if use_enhanced:
+            pipeline = self._get_or_create_enhanced_pipeline(
+                model, provider, enable_query_expansion, 
+                enable_source_filtering, enable_diversity_ranking
+            )
+            
+            # Build inputs for enhanced pipeline
+            inputs = {
+                "prompt_builder": {
+                    "question": query,
+                    "conversation_history": conversation_history
+                }
+            }
+            
+            # Add query expansion inputs if enabled
+            if enable_query_expansion:
+                inputs["query_expander"] = {"query": query}
+            else:
+                # If no query expansion, connect embedder directly
+                inputs["embedder"] = {"text": query}
+            
+            # Add source filtering inputs if enabled
+            if enable_source_filtering and source_filters:
+                inputs["source_filter"] = {
+                    "source_filters": source_filters,
+                    "preferred_sources": preferred_sources
+                }
+            
+            # Add retriever-specific inputs
+            if isinstance(self.document_store, InMemoryDocumentStore):
+                inputs["bm25_retriever"] = {"query": query}
+            else:
+                # For hybrid retriever
+                inputs["hybrid_retriever"] = {"query": query}
+                if filters:
+                    inputs["hybrid_retriever"]["filters"] = filters
+            
+            # Similarity ranker always needs query
+            inputs["similarity_ranker"] = {"query": query}
+            
+            if filters and isinstance(self.document_store, InMemoryDocumentStore):
+                inputs["embedding_retriever"] = {"filters": filters}
+            
+            # Run the enhanced pipeline
+            result = pipeline.run(inputs)
+            
+            # Extract enhanced results
+            answer_builder_output = result.get("answer_builder", {})
+            return {
+                "answer": answer_builder_output.get("answer", ""),
+                "sources": answer_builder_output.get("sources", []),
+                "confidence_score": float(answer_builder_output.get("confidence_score", 0.0)),
+                "metadata": answer_builder_output.get("metadata", {})
+            }
         
         # Select pipeline based on retrieval mode and filters
         if filters:

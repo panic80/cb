@@ -1381,9 +1381,13 @@ app.post('/api/rag/ingest/url', rateLimiter, async (req, res) => {
     
     // Forward to RAG service
     const response = await axios.post(`${RAG_SERVICE_URL}/ingest/url`, {
-      url: url
+      url: url,
+      enable_crawling: req.body.enable_crawling,
+      max_depth: req.body.max_depth,
+      max_pages: req.body.max_pages,
+      follow_external_links: req.body.follow_external_links
     }, {
-      timeout: 30000 // 30 seconds for ingestion
+      timeout: 300000 // 5 minutes for ingestion - increased for large pages
     });
     
     res.json({
