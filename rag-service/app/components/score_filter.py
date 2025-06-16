@@ -30,10 +30,12 @@ class ScoreFilter:
             return {"documents": []}
 
         # 1. Sort by score (desc) first so we can keep highest even if below threshold.
-        documents.sort(key=lambda d: getattr(d, "score", 0.0), reverse=True)
+        # Handle None scores by converting to 0.0
+        documents.sort(key=lambda d: getattr(d, "score", 0.0) or 0.0, reverse=True)
 
         # 2. Apply threshold.
-        filtered = [doc for doc in documents if getattr(doc, "score", 0.0) >= self.threshold]
+        # Handle None scores by converting to 0.0
+        filtered = [doc for doc in documents if (getattr(doc, "score", 0.0) or 0.0) >= self.threshold]
 
         # 3. Fallback – if nothing passes the threshold, keep the single best doc so
         #    that the pipeline still receives some context.

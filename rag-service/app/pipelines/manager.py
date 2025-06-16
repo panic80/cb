@@ -9,32 +9,14 @@ from haystack.document_stores.in_memory import InMemoryDocumentStore
 from haystack.document_stores.types import DuplicatePolicy
 from haystack.utils import Secret
 from haystack_integrations.document_stores.pgvector import PgvectorDocumentStore
-from haystack.components.converters import (
-    TextFileToDocument,
-    PyPDFToDocument,
-    HTMLToDocument,
-    MarkdownToDocument,
-    CSVToDocument,
-    DOCXToDocument,
-    XLSXToDocument
-)
-from haystack.components.preprocessors import DocumentCleaner, DocumentSplitter
-from haystack.components.embedders import OpenAIDocumentEmbedder
-from haystack.components.writers import DocumentWriter
 
-from app.pipelines.indexing import (
-    create_indexing_pipeline,
-    create_url_indexing_pipeline,
-    create_full_indexing_pipeline
-)
-from app.pipelines.query import create_query_pipeline
-from app.pipelines.hybrid_query import create_hybrid_query_pipeline, create_filtered_query_pipeline
-from app.pipelines.enhanced_query import create_enhanced_query_pipeline
-from app.services.document_store import DocumentStoreService, InMemorySourceMetadataStore, DatabaseSourceMetadataStore
-from app.services.conversation_store import ConversationStore, InMemoryConversationStore, DatabaseConversationStore
-from app.components.semantic_splitter import SemanticDocumentSplitter
-from app.components.propositions_splitter import PropositionsDocumentSplitter
-from app.components.table_aware_splitter import TableAwareDocumentSplitter
+from app.pipelines.provider import PipelineProvider
+from app.services.document_store import DocumentStoreService
+from app.services.conversation_store import ConversationStore
+from app.services.store_factory import create_complete_stores
+from app.models.documents import create_source_metadata
+from app.models.query import create_query_context, QueryContext
+from app.processing.query_classifier import create_query_classifier
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -46,89 +28,25 @@ class PipelineManager:
     def __init__(self):
         self.document_store: Optional[InMemoryDocumentStore] = None
         self.document_store_service: Optional[DocumentStoreService] = None
-        self.indexing_pipeline: Optional[Pipeline] = None
-        self.url_indexing_pipeline: Optional[Pipeline] = None
-        self.full_indexing_pipeline: Optional[Pipeline] = None
-        self.query_pipelines_cache: Dict[str, Pipeline] = {}
-        self.hybrid_pipelines_cache: Dict[str, Pipeline] = {}
-        self.filtered_pipelines_cache: Dict[str, Pipeline] = {}
-        self.enhanced_pipelines_cache: Dict[str, Pipeline] = {}
-        # Cache for file indexing pipelines by file extension
-        self.file_indexing_pipelines_cache: Dict[str, Pipeline] = {}
+        self.pipeline_provider: Optional[PipelineProvider] = None
         self._initialized = False
         self.conversation_store: Optional[ConversationStore] = None
+        self.query_classifier = create_query_classifier()
     
     async def initialize(self):
-        """Initialize pipelines and document store."""
+        """Initialize pipelines and document store using factory pattern."""
         try:
             logger.info("Initializing pipeline manager...")
             
-            # Initialize document store
-            if settings.VECTOR_STORE_TYPE == "memory":
-                self.document_store = InMemoryDocumentStore(
-                    embedding_similarity_function="cosine"
-                )
-            elif settings.VECTOR_STORE_TYPE == "pgvector":
-                if not settings.DATABASE_URL:
-                    raise ValueError("DATABASE_URL is required for pgvector document store")
-                
-                def _init_pg_store():
-                    """Synchronous function to initialize the document store."""
-                    logger.info("Initializing PgvectorDocumentStore...")
-                    store = PgvectorDocumentStore(
-                        connection_string=Secret.from_token(settings.DATABASE_URL),
-                        table_name="documents",
-                        embedding_dimension=3072,  # OpenAI text-embedding-3-large dimension
-                        vector_function="cosine_similarity",
-                        recreate_table=False,  # Preserve data across restarts
-                        search_strategy="exact_search"
-                    )
-                    logger.info("PgvectorDocumentStore initialized successfully.")
-                    return store
-                
-                # Run the blocking initialization in a separate thread to avoid freezing the event loop
-                loop = asyncio.get_running_loop()
-                self.document_store = await loop.run_in_executor(None, _init_pg_store)
-            else:
-                # TODO: Add support for Chroma
-                raise NotImplementedError(f"Vector store type {settings.VECTOR_STORE_TYPE} not implemented yet")
+            # Create all stores using factory
+            (
+                self.document_store,
+                self.document_store_service,
+                self.conversation_store
+            ) = await create_complete_stores()
             
-            # Initialize metadata store based on configuration
-            if settings.DATABASE_URL and settings.VECTOR_STORE_TYPE == "pgvector":
-                # Use database for metadata storage when using pgvector
-                metadata_store = DatabaseSourceMetadataStore(settings.DATABASE_URL)
-                logger.info("Using database metadata store")
-            else:
-                # Use in-memory store for development/testing
-                metadata_store = InMemorySourceMetadataStore()
-                logger.info("Using in-memory metadata store")
-            
-            # Initialize document store service
-            self.document_store_service = DocumentStoreService(self.document_store, metadata_store)
-            
-            # Initialize conversation store based on configuration
-            if settings.DATABASE_URL and settings.VECTOR_STORE_TYPE == "pgvector":
-                # Use database for conversation storage when using pgvector
-                self.conversation_store = DatabaseConversationStore(settings.DATABASE_URL)
-                logger.info("Using database conversation store")
-            else:
-                # Use in-memory store for development/testing
-                self.conversation_store = InMemoryConversationStore()
-                logger.info("Using in-memory conversation store")
-            
-            # Create pipelines
-            # We'll create specific pipelines on demand for each file type
-            # Note: URL indexing pipelines are created dynamically with custom settings
-            self.url_indexing_pipeline = None  # Created on-demand
-            
-            # Query pipelines will be created dynamically based on model selection
-            self.query_pipelines_cache = {}  # Cache for query pipelines by model
-            self.hybrid_pipelines_cache = {}  # Cache for hybrid pipelines by model
-            self.filtered_pipelines_cache = {}  # Cache for filtered pipelines by model
-            self.enhanced_pipelines_cache = {}  # Cache for enhanced pipelines by model
-            
-            # Pre-create file indexing pipelines for common file types
-            self._initialize_file_indexing_pipelines()
+            # Initialize pipeline provider
+            self.pipeline_provider = PipelineProvider(self.document_store)
             
             self._initialized = True
             logger.info("Pipeline manager initialized successfully")
@@ -164,15 +82,15 @@ class PipelineManager:
             # Generate document ID
             doc_id = str(uuid.uuid4())
             
-            # Prepare metadata
-            doc_metadata = {
-                "source_id": doc_id,
-                "filename": filename,
-                "content_type": content_type,
-                "source": filename,
-                "indexed_at": datetime.utcnow().isoformat(),
+            # Create standardized metadata
+            source_meta = create_source_metadata(
+                source_id=doc_id,
+                source=filename,
+                content_type=content_type,
+                title=filename,
                 **(metadata or {})
-            }
+            )
+            doc_metadata = source_meta.dict(exclude_none=True)
             
             # Run indexing pipeline synchronously (Haystack 2.0 doesn't have async support yet)
             result = await asyncio.get_event_loop().run_in_executor(
@@ -218,15 +136,16 @@ class PipelineManager:
             # Generate document ID
             doc_id = str(uuid.uuid4())
             
-            # Prepare metadata
-            doc_metadata = {
-                "source_id": doc_id,
-                "url": url,
-                "source": url,
-                "content_type": "text/html",
-                "indexed_at": datetime.utcnow().isoformat(),
+            # Create standardized metadata
+            source_meta = create_source_metadata(
+                source_id=doc_id,
+                source=url,
+                content_type="text/html",
+                title=url,
+                url=url,  # Keep URL in legacy field for compatibility
                 **(metadata or {})
-            }
+            )
+            doc_metadata = source_meta.dict(exclude_none=True)
             
             # Run indexing pipeline for URL
             result = await asyncio.get_event_loop().run_in_executor(
@@ -281,16 +200,31 @@ class PipelineManager:
             # Get conversation history
             conversation_history = await self.conversation_store.get_conversation(conversation_id)
             
-            # Run query pipeline synchronously
+            # Create query context with classification
+            context = create_query_context(
+                query=query,
+                model=model,
+                retrieval_mode=retrieval_mode,
+                conversation_id=conversation_id,
+                conversation_history=conversation_history,
+                filters=filters
+            )
+            
+            # Apply query classification
+            classification = self.query_classifier.classify(query)
+            context.apply_classification(classification)
+            
+            # Override with any explicit configuration
+            if query_config:
+                for key, value in query_config.items():
+                    if hasattr(context, key):
+                        setattr(context, key, value)
+            
+            # Run query pipeline with context
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
-                self._run_query_pipeline,
-                query,
-                conversation_history,
-                model,
-                retrieval_mode,
-                filters,
-                query_config
+                self._run_query_pipeline_with_context,
+                context
             )
             
             # Update conversation history
@@ -302,7 +236,12 @@ class PipelineManager:
             return {
                 "answer": result["answer"],
                 "sources": result.get("sources", []),
-                "conversation_id": conversation_id
+                "conversation_id": conversation_id,
+                "metadata": {
+                    "query_type": classification.query_type,
+                    "confidence": classification.confidence,
+                    "pipeline_config": context.get_pipeline_config()
+                }
             }
             
         except Exception as e:
@@ -363,50 +302,52 @@ class PipelineManager:
             raise
     
     async def delete_source(self, source_id: str) -> Dict[str, Any]:
-        """Delete a source and all its documents."""
+        """Delete a source and all its documents using efficient metadata filtering."""
         try:
-            # Find documents with matching source metadata
-            all_docs = self.document_store.filter_documents()
-            docs_to_delete = []
+            logger.info(f"Deleting source: {source_id}")
             
-            for doc in all_docs:
-                # Check if document belongs to this source
-                # Try multiple ways to match the source
-                doc_source = doc.meta.get("source")
-                doc_source_id = doc.meta.get("source_id") 
-                doc_filename = doc.meta.get("filename")
-                doc_url = doc.meta.get("url")
-                
-                if (doc_source == source_id or 
-                    doc_source_id == source_id or
-                    doc_filename == source_id or
-                    (source_id == "unknown" and doc_source is None) or
-                    (source_id == "unknown" and doc_url and "haystack" in doc_url)):
-                    docs_to_delete.append(doc.id)
-                    logger.info(f"Found document to delete: {doc.id} for source {source_id}")
+            # Use metadata filtering for efficient deletion instead of O(n) scan
+            # Try multiple filter combinations to handle legacy inconsistent metadata
+            filter_combinations = [
+                {"field": "meta.source_id", "operator": "==", "value": source_id},
+                {"field": "meta.source", "operator": "==", "value": source_id},
+                {"field": "meta.filename", "operator": "==", "value": source_id},
+            ]
             
-            # Delete documents by IDs
-            deleted_count = 0
-            if docs_to_delete:
+            # Handle special case for "unknown" sources
+            if source_id == "unknown":
+                filter_combinations.extend([
+                    {"field": "meta.source", "operator": "==", "value": None},
+                    {"field": "meta.url", "operator": "in", "value": ["haystack"]},
+                ])
+            
+            total_deleted = 0
+            
+            # Try each filter combination
+            for filters in filter_combinations:
                 try:
-                    self.document_store.delete_documents(document_ids=docs_to_delete)
-                    deleted_count = len(docs_to_delete)
+                    # First count documents that match this filter
+                    matching_docs = self.document_store.filter_documents(filters=filters)
+                    doc_count = len(matching_docs)
+                    
+                    if doc_count > 0:
+                        # Delete using the filter - much more efficient than ID-based deletion
+                        self.document_store.delete_documents(filters=filters)
+                        total_deleted += doc_count
+                        logger.info(f"Deleted {doc_count} documents using filter: {filters}")
+                        
                 except Exception as e:
-                    logger.warning(f"Error deleting documents: {e}")
-                    # Try alternative method
-                    for doc_id in docs_to_delete:
-                        try:
-                            self.document_store.delete_documents(document_ids=[doc_id])
-                            deleted_count += 1
-                        except:
-                            continue
+                    logger.warning(f"Filter {filters} failed: {e}")
+                    continue
             
             # Delete source metadata
-            success = await self.document_store_service.delete_source(source_id)
+            await self.document_store_service.delete_source(source_id)
+            
+            logger.info(f"Successfully deleted source {source_id} with {total_deleted} documents")
             
             return {
                 "success": True,
-                "documents_deleted": deleted_count
+                "documents_deleted": total_deleted
             }
             
         except Exception as e:
@@ -421,175 +362,41 @@ class PipelineManager:
             logger.error(f"Failed to get document count: {e}", exc_info=True)
             return 0
     
-    def _get_or_create_pipeline(self, pipeline_type: str, model: str, provider: str) -> Pipeline:
-        """Get or create a pipeline based on type and model."""
-        cache_key = f"{model}_{provider}"
-        logger.info(f"Getting/creating {pipeline_type} pipeline for model: {model}, provider: {provider}, cache_key: {cache_key}")
-        
-        if pipeline_type == "query":
-            if cache_key not in self.query_pipelines_cache:
-                logger.info(f"Creating new query pipeline for model: {model}")
-                self.query_pipelines_cache[cache_key] = create_query_pipeline(
-                    self.document_store, model=model, provider=provider
-                )
-            else:
-                logger.info(f"Using cached query pipeline for model: {model}")
-            return self.query_pipelines_cache[cache_key]
-        elif pipeline_type == "hybrid":
-            if cache_key not in self.hybrid_pipelines_cache:
-                self.hybrid_pipelines_cache[cache_key] = create_hybrid_query_pipeline(
-                    self.document_store, model=model, provider=provider
-                )
-            return self.hybrid_pipelines_cache[cache_key]
-        elif pipeline_type == "filtered":
-            if cache_key not in self.filtered_pipelines_cache:
-                self.filtered_pipelines_cache[cache_key] = create_filtered_query_pipeline(
-                    self.document_store, model=model, provider=provider
-                )
-            return self.filtered_pipelines_cache[cache_key]
-        else:
-            raise ValueError(f"Unknown pipeline type: {pipeline_type}")
     
-    def _get_or_create_enhanced_pipeline(
-        self,
-        model: str,
-        provider: str,
-        enable_query_expansion: bool = True,
-        enable_source_filtering: bool = True,
-        enable_diversity_ranking: bool = True
-    ) -> Pipeline:
-        """Get or create an enhanced pipeline with specific configuration."""
-        cache_key = f"{model}_{provider}_{enable_query_expansion}_{enable_source_filtering}_{enable_diversity_ranking}"
+    def _run_query_pipeline_with_context(self, context: QueryContext) -> Dict[str, Any]:
+        """Run the query pipeline using QueryContext for configuration."""
+        logger.info(f"Running pipeline for query type: {context.classification.query_type if context.classification else 'unknown'}")
         
-        if cache_key not in self.enhanced_pipelines_cache:
-            logger.info(f"Creating new enhanced pipeline for model: {model}")
-            self.enhanced_pipelines_cache[cache_key] = create_enhanced_query_pipeline(
-                self.document_store,
-                model=model,
-                provider=provider,
-                enable_query_expansion=enable_query_expansion,
-                enable_source_filtering=enable_source_filtering,
-                enable_diversity_ranking=enable_diversity_ranking
-            )
-        else:
-            logger.info(f"Using cached enhanced pipeline for model: {model}")
+        # Get the appropriate pipeline based on context
+        pipeline = self.pipeline_provider.get_query_pipeline(
+            model=context.model,
+            provider=context.provider,
+            retrieval_mode=context.retrieval_mode,
+            filters=context.filters,
+            query_config=context.get_pipeline_config()
+        )
         
-        return self.enhanced_pipelines_cache[cache_key]
-    
-    def _initialize_file_indexing_pipelines(self):
-        """Pre-create and cache file indexing pipelines for common file types."""
-        common_extensions = [
-            ".txt", ".text", ".pdf", ".html", ".htm", ".md", ".markdown",
-            ".csv", ".docx", ".doc", ".xlsx", ".xls", ".json", ".jsonl"
-        ]
+        # Build inputs from context
+        inputs = context.get_pipeline_inputs()
         
-        logger.info("Initializing file indexing pipelines...")
-        for ext in common_extensions:
-            try:
-                self.file_indexing_pipelines_cache[ext] = self._create_file_indexing_pipeline(ext)
-                logger.debug(f"Cached pipeline for {ext}")
-            except Exception as e:
-                logger.warning(f"Failed to create pipeline for {ext}: {e}")
+        # Run the pipeline
+        result = pipeline.run(inputs)
         
-        logger.info(f"Cached {len(self.file_indexing_pipelines_cache)} file indexing pipelines")
-    
-    def _get_or_create_file_indexing_pipeline(self, file_extension: str) -> Pipeline:
-        """Get cached pipeline or create new one if not found."""
-        if file_extension not in self.file_indexing_pipelines_cache:
-            logger.info(f"Creating new pipeline for uncached extension: {file_extension}")
-            self.file_indexing_pipelines_cache[file_extension] = self._create_file_indexing_pipeline(file_extension)
-        else:
-            logger.debug(f"Using cached pipeline for {file_extension}")
-        
-        return self.file_indexing_pipelines_cache[file_extension]
-    
-    def _create_file_indexing_pipeline(self, file_extension: str) -> Pipeline:
-        """Create a pipeline for a specific file type using Haystack's built-in converters."""
-        pipeline = Pipeline()
-        
-        # Select converter based on file extension
-        if file_extension in [".txt", ".text"]:
-            converter = TextFileToDocument()
-        elif file_extension == ".pdf":
-            converter = PyPDFToDocument()
-        elif file_extension in [".html", ".htm"]:
-            converter = HTMLToDocument()
-        elif file_extension in [".md", ".markdown"]:
-            converter = MarkdownToDocument()
-        elif file_extension == ".csv":
-            converter = CSVToDocument()
-        elif file_extension in [".docx", ".doc"]:
-            converter = DOCXToDocument()
-        elif file_extension in [".xlsx", ".xls"]:
-            converter = XLSXToDocument()
-        elif file_extension in [".json", ".jsonl"]:
-            # JSON files handled as text for now
-            converter = TextFileToDocument()
-        else:
-            # Default to text converter
-            logger.warning(f"Unknown file extension {file_extension}, using text converter")
-            converter = TextFileToDocument()
-        
-        # Add components to pipeline
-        pipeline.add_component("converter", converter)
-        pipeline.add_component("cleaner", DocumentCleaner(
-            remove_empty_lines=True,
-            remove_extra_whitespaces=True,
-            remove_repeated_substrings=True  # Enable to fix text duplication issues
-        ))
-        # Select splitter based on configuration
-        if settings.CHUNKING_STRATEGY == "semantic":
-            pipeline.add_component("splitter", SemanticDocumentSplitter(
-                min_chunk_size=settings.MIN_CHUNK_SIZE,
-                max_chunk_size=settings.MAX_CHUNK_SIZE
-            ))
-        elif settings.CHUNKING_STRATEGY == "propositions":
-            pipeline.add_component("splitter", PropositionsDocumentSplitter(
-                min_chunk_size=settings.MIN_CHUNK_SIZE,
-                max_chunk_size=settings.MAX_CHUNK_SIZE
-            ))
-        elif settings.CHUNKING_STRATEGY == "table_aware":
-            # Check if file contains tables (for CSV, XLSX)
-            has_tables = file_extension in [".csv", ".xlsx", ".xls", ".html", ".htm", ".md", ".markdown"]
-            pipeline.add_component("splitter", TableAwareDocumentSplitter(
-                split_length=settings.CHUNK_SIZE,
-                split_overlap=settings.CHUNK_OVERLAP,
-                split_by="word",
-                preserve_tables=has_tables,
-                use_semantic_splitting=False
-            ))
-        else:  # fixed/default
-            pipeline.add_component("splitter", DocumentSplitter(
-                split_by="word",
-                split_length=settings.CHUNK_SIZE,
-                split_overlap=settings.CHUNK_OVERLAP,
-                split_threshold=0.1
-            ))
-        pipeline.add_component("embedder", OpenAIDocumentEmbedder(
-            api_key=Secret.from_token(settings.OPENAI_API_KEY),
-            model=settings.EMBEDDING_MODEL
-        ))
-        pipeline.add_component("writer", DocumentWriter(
-            document_store=self.document_store,
-            policy=DuplicatePolicy.OVERWRITE
-        ))
-        
-        # Connect components
-        pipeline.connect("converter.documents", "cleaner.documents")
-        pipeline.connect("cleaner.documents", "splitter.documents")
-        pipeline.connect("splitter.documents", "embedder.documents")
-        pipeline.connect("embedder.documents", "writer.documents")
-        
-        return pipeline
+        # Extract the answer from the answer_builder output
+        answer_builder_output = result.get("answer_builder", {})
+        return {
+            "answer": answer_builder_output.get("answer", ""),
+            "sources": answer_builder_output.get("sources", []),
+            "confidence_score": answer_builder_output.get("confidence_score", 0.0),
+            "metadata": answer_builder_output.get("metadata", {})
+        }
     
     def _run_indexing_pipeline(self, file_path: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Run the indexing pipeline synchronously."""
-        # Get file extension
         from pathlib import Path
         file_extension = Path(file_path).suffix.lower()
         
-        # Get cached pipeline for this file type
-        pipeline = self._get_or_create_file_indexing_pipeline(file_extension)
+        pipeline = self.pipeline_provider.get_file_indexing_pipeline(file_extension)
         
         # Run the pipeline
         result = pipeline.run({
@@ -630,10 +437,7 @@ class PipelineManager:
         logger.info(f"Running {'crawling' if enable_crawling else 'single-page'} pipeline for URL: {url}")
         logger.info(f"Crawling settings - depth: {max_depth}, pages: {max_pages}, external: {follow_external_links}")
         
-        # Create a pipeline with the specified crawling settings
-        logger.info(f"Creating pipeline with enable_crawling={enable_crawling}")
-        pipeline = create_url_indexing_pipeline(
-            document_store=self.document_store,
+        pipeline = self.pipeline_provider.get_url_indexing_pipeline(
             enable_crawling=enable_crawling,
             max_depth=max_depth,
             max_pages=max_pages,
@@ -689,18 +493,38 @@ class PipelineManager:
         # Parse query configuration - use settings defaults if not specified
         config = query_config or {}
         use_enhanced = config.get("use_enhanced_pipeline", settings.USE_ENHANCED_PIPELINE)
+        use_table_aware = config.get("use_table_aware_pipeline", self.query_classifier.is_table_query(query))
         enable_query_expansion = config.get("enable_query_expansion", settings.ENABLE_QUERY_EXPANSION)
         enable_source_filtering = config.get("enable_source_filtering", settings.ENABLE_SOURCE_FILTERING)
         enable_diversity_ranking = config.get("enable_diversity_ranking", settings.ENABLE_DIVERSITY_RANKING)
         source_filters = config.get("source_filters", None)
         preferred_sources = config.get("preferred_sources", None)
         
+        # Use table-aware pipeline if detected or requested
+        if use_table_aware:
+            config["use_table_aware_pipeline"] = True
+            pipeline = self.pipeline_provider.get_query_pipeline(model, provider, retrieval_mode, filters, config)
+            inputs = {
+                "query_expander": {"query": query},
+                "prompt_builder": {
+                    "conversation_history": conversation_history
+                }
+            }
+            
+            # Run the table-aware pipeline
+            result = pipeline.run(inputs)
+            
+            # Extract table-aware results
+            answer_builder_output = result.get("answer_builder", {})
+            return {
+                "answer": answer_builder_output.get("answer", ""),
+                "sources": answer_builder_output.get("sources", [])
+            }
+        
         # Use enhanced pipeline if requested
-        if use_enhanced:
-            pipeline = self._get_or_create_enhanced_pipeline(
-                model, provider, enable_query_expansion, 
-                enable_source_filtering, enable_diversity_ranking
-            )
+        elif use_enhanced:
+            config["use_enhanced_pipeline"] = True
+            pipeline = self.pipeline_provider.get_query_pipeline(model, provider, retrieval_mode, filters, config)
             
             # Build inputs for enhanced pipeline
             inputs = {
@@ -753,7 +577,7 @@ class PipelineManager:
         
         # Select pipeline based on retrieval mode and filters
         if filters:
-            pipeline = self._get_or_create_pipeline("filtered", model, provider)
+            pipeline = self.pipeline_provider.get_query_pipeline(model, provider, retrieval_mode, filters, config)
             inputs = {
                 "embedder": {"text": query},
                 "retriever": {"filters": filters},
@@ -764,7 +588,7 @@ class PipelineManager:
                 }
             }
         elif retrieval_mode == "hybrid" and isinstance(self.document_store, InMemoryDocumentStore):
-            pipeline = self._get_or_create_pipeline("hybrid", model, provider)
+            pipeline = self.pipeline_provider.get_query_pipeline(model, provider, retrieval_mode, filters, config)
             inputs = {
                 "embedder": {"text": query},
                 "bm25_retriever": {"query": query},
@@ -776,7 +600,7 @@ class PipelineManager:
             }
         else:
             # Default to standard embedding pipeline
-            pipeline = self._get_or_create_pipeline("query", model, provider)
+            pipeline = self.pipeline_provider.get_query_pipeline(model, provider, retrieval_mode, filters, config)
             inputs = {
                 "embedder": {"text": query},
                 "prompt_builder": {
