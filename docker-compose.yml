@@ -85,4 +85,3 @@ volumes:
 networks:
   app-network:
     driver: bridge
-COMPOSE_EOF < /dev/null

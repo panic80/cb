@@ -10,6 +10,7 @@ from haystack.utils import Secret
 from haystack.document_stores.in_memory import InMemoryDocumentStore
 from haystack_integrations.components.retrievers.pgvector import PgvectorEmbeddingRetriever
 
+from app.components.answer_builder import AnswerBuilder
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -112,32 +113,4 @@ Answer:"""
     return pipeline
 
 
-@component
-class AnswerBuilder:
-    """Build the final answer with sources."""
-    
-    @component.output_types(answer=str, sources=List[Dict[str, Any]])
-    def run(self, replies: List[str], documents: List[Any]) -> Dict[str, Any]:
-        """Format the answer with sources."""
-        # Extract answer
-        answer = replies[0] if replies else ""
-        
-        # Extract sources
-        sources = []
-        seen_sources = set()
-        
-        for doc in documents[:5]:  # Limit to top 5 sources
-            source = doc.meta.get("source", "Unknown")
-            if source not in seen_sources:
-                seen_sources.add(source)
-                sources.append({
-                    "source": source,
-                    "title": doc.meta.get("title", source),
-                    "content_preview": doc.content[:200] + "..." if len(doc.content) > 200 else doc.content,
-                    "metadata": doc.meta
-                })
-        
-        return {
-            "answer": answer,
-            "sources": sources
-        }
+# AnswerBuilder component moved to app/components/answer_builder.py

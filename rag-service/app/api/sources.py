@@ -112,30 +112,7 @@ async def delete_source(
 ):
     """Delete a specific source and all its documents."""
     try:
-        # Comprehensive logging of the received source_id
-        logger.info("=" * 60)
-        logger.info(f"DELETE endpoint called")
-        logger.info(f"Raw source_id received: '{source_id}'")
-        logger.info(f"Source_id type: {type(source_id)}")
-        logger.info(f"Source_id length: {len(source_id)}")
-        logger.info(f"Source_id repr: {repr(source_id)}")
-        
-        # Check for any special characters or encoding
-        if source_id:
-            logger.info(f"Source_id characters: {[ord(c) for c in source_id]}")
-            logger.info(f"Source_id stripped: '{source_id.strip()}'")
-            logger.info(f"Source_id contains spaces: {' ' in source_id}")
-            has_newlines = '\n' in source_id or '\r' in source_id
-            logger.info(f"Source_id contains newlines: {has_newlines}")
-        
-        # Log request details
-        logger.info(f"Request URL: {request.url}")
-        logger.info(f"Request path: {request.url.path}")
-        logger.info(f"Request query params: {dict(request.query_params)}")
-        logger.info(f"Request path params: {request.path_params}")
-        logger.info(f"Request method: {request.method}")
-        
-        logger.info("=" * 60)
+        logger.info(f"Attempting to delete source with ID: {source_id}")
         
         # Delete source and its documents
         result = await pipeline_manager.delete_source(source_id)
