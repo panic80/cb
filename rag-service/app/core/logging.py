@@ -1,32 +1,68 @@
+"""Logging configuration for RAG service."""
+
 import logging
 import sys
-from pathlib import Path
-from app.core.config import settings
+import json
+from datetime import datetime
+from typing import Any, Dict
 
 
-def setup_logging():
-    """Configure logging for the application."""
+class JSONFormatter(logging.Formatter):
+    """Custom JSON formatter for structured logging."""
     
-    # Create logs directory if it doesn't exist
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
+    def format(self, record: logging.LogRecord) -> str:
+        """Format log record as JSON."""
+        log_obj: Dict[str, Any] = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "function": record.funcName,
+            "line": record.lineno,
+        }
+        
+        # Add extra fields if present
+        if hasattr(record, "extra"):
+            log_obj.update(record.extra)
+            
+        # Add exception info if present
+        if record.exc_info:
+            log_obj["exception"] = self.formatException(record.exc_info)
+            
+        return json.dumps(log_obj)
+
+
+def setup_logging(log_level: str = "INFO", log_format: str = "json") -> None:
+    """Set up logging configuration."""
+    # Remove all existing handlers
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+        
+    # Create console handler
+    console_handler = logging.StreamHandler(sys.stdout)
     
-    # Configure log format
-    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    date_format = "%Y-%m-%d %H:%M:%S"
+    # Set formatter based on format type
+    if log_format == "json":
+        formatter = JSONFormatter()
+    else:
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+        
+    console_handler.setFormatter(formatter)
     
     # Configure root logger
-    logging.basicConfig(
-        level=getattr(logging, settings.LOG_LEVEL.upper()),
-        format=log_format,
-        datefmt=date_format,
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler(log_dir / settings.LOG_FILE)
-        ]
-    )
+    root_logger.addHandler(console_handler)
+    root_logger.setLevel(getattr(logging, log_level.upper()))
     
-    # Set specific log levels for libraries
+    # Set specific loggers
+    logging.getLogger("uvicorn").setLevel(logging.INFO)
+    logging.getLogger("chromadb").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("openai").setLevel(logging.WARNING)
-    logging.getLogger("haystack").setLevel(logging.INFO)
+    
+
+def get_logger(name: str) -> logging.Logger:
+    """Get a logger instance."""
+    return logging.getLogger(name)

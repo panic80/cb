@@ -3,36 +3,22 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Textarea } from '../components/ui/textarea';
-import { Badge } from '../components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-// Temporary toast implementation to avoid sonner issues
-const toast = {
-  success: (message: string) => console.log('✅ Success:', message),
-  error: (message: string) => console.error('❌ Error:', message),
-};
-import { Upload, Link, Database, Trash2, RefreshCw, CheckCircle, XCircle, Clock, Brain, ArrowLeft, Terminal, X } from 'lucide-react';
-
-interface RAGSource {
-  id: string;
-  type: 'url' | 'file';
-  name: string;
-  source: string;
-  status: 'processing' | 'completed' | 'error';
-  vectorCount?: number;
-  ingestedAt: string;
-  error?: string;
-}
-
-interface RAGStatus {
-  totalVectors: number;
-  totalSources: number;
-  averageQueryTime: number;
-  storageUsed: string;
-  isHealthy: boolean;
-  lastUpdate: string;
-}
+import { Label } from '../components/ui/label';
+import { Checkbox } from '../components/ui/checkbox';
+import { toast } from 'sonner';
+import { Brain, ArrowLeft, CheckCircle, Globe, Loader2, Trash2, AlertTriangle, RefreshCw } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '../components/ui/alert-dialog';
+import IngestionConsole from '../components/IngestionConsole';
 
 import { LLM_MODELS, type LLMModel, DEFAULT_MODEL_ID } from '../constants/models';
 
@@ -40,26 +26,7 @@ import { LLM_MODELS, type LLMModel, DEFAULT_MODEL_ID } from '../constants/models
 const MODELS = Array.isArray(LLM_MODELS) ? LLM_MODELS : [];
 
 export default function ConfigPage() {
-  const [activeTab, setActiveTab] = useState('ingestion');
-  const [isLoading, setIsLoading] = useState(false);
-  const [sources, setSources] = useState<RAGSource[]>([]);
-  const [ragStatus, setRAGStatus] = useState<RAGStatus | null>(null);
-  
-  // URL Ingestion state
-  const [urlInput, setUrlInput] = useState('');
-  const [isIngestingUrl, setIsIngestingUrl] = useState(false);
-  const [enableCrawling, setEnableCrawling] = useState(true);
-  const [maxDepth, setMaxDepth] = useState<number>(1);
-  const [maxPages, setMaxPages] = useState<number>(10);
-  const [followExternalLinks, setFollowExternalLinks] = useState(false);
-  const [ingestionProgress, setIngestionProgress] = useState(0);
-  const [ingestionLogs, setIngestionLogs] = useState<string[]>([]);
-  const [showIngestionConsole, setShowIngestionConsole] = useState(false);
-  
-  // File Upload state
-  const [dragActive, setDragActive] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [isUploading, setIsUploading] = useState(false);
+  const [activeTab, setActiveTab] = useState('model');
   
   // LLM Model state
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL_ID);
@@ -67,23 +34,41 @@ export default function ConfigPage() {
   const [tempSelectedModel, setTempSelectedModel] = useState<string>(DEFAULT_MODEL_ID);
   const [tempSelectedProvider, setTempSelectedProvider] = useState<'openai' | 'google' | 'anthropic'>('openai');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  
+  // URL Ingestion state
+  const [urlInput, setUrlInput] = useState('');
+  const [isIngesting, setIsIngesting] = useState(false);
+  const [forceRefresh, setForceRefresh] = useState(false);
+  const [ingestionHistory, setIngestionHistory] = useState<Array<{url: string, status: string, timestamp: string}>>([]);
+  const [showIngestionProgress, setShowIngestionProgress] = useState(false);
+  const [currentIngestionUrl, setCurrentIngestionUrl] = useState('');
+  
+  // Database management state
+  const [isPurging, setIsPurging] = useState(false);
+  const [databaseStats, setDatabaseStats] = useState<{
+    total_documents: number;
+    total_chunks: number;
+    sources: Array<{
+      source: string;
+      document_count: number;
+      chunk_count: number;
+      last_updated: string;
+    }>;
+  } | null>(null);
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
 
   // Load initial data
   useEffect(() => {
-    loadRAGStatus();
-    loadSources();
     loadModelSettings();
+    loadIngestionHistory();
   }, []);
 
-  // Auto-hide console after successful ingestion
+  // Load database stats when database tab is active
   useEffect(() => {
-    if (ingestionProgress === 100 && !isIngestingUrl) {
-      const timer = setTimeout(() => {
-        setShowIngestionConsole(false);
-      }, 5000);
-      return () => clearTimeout(timer);
+    if (activeTab === 'database') {
+      loadDatabaseStats();
     }
-  }, [ingestionProgress, isIngestingUrl]);
+  }, [activeTab]);
 
   const loadModelSettings = () => {
     // Load saved model from localStorage
@@ -136,312 +121,203 @@ export default function ConfigPage() {
     setHasUnsavedChanges(false);
   };
 
-  const loadRAGStatus = async () => {
-    try {
-      const response = await fetch('/api/rag/status');
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Transform the data to match the expected RAGStatus interface
-        const transformedStatus: RAGStatus = {
-          totalVectors: data.document_count || 0,
-          totalSources: data.document_count || 0, // Use document count as source count
-          averageQueryTime: 0, // Not provided by the API
-          storageUsed: 'In-Memory', // Based on vector_store_type
-          isHealthy: data.status === 'healthy',
-          lastUpdate: new Date().toISOString()
-        };
-        
-        setRAGStatus(transformedStatus);
+  const loadIngestionHistory = () => {
+    const savedHistory = localStorage.getItem('ingestionHistory');
+    if (savedHistory) {
+      try {
+        setIngestionHistory(JSON.parse(savedHistory));
+      } catch (e) {
+        console.error('Error loading ingestion history:', e);
       }
-    } catch (error) {
-      console.error('Failed to load RAG status:', error);
     }
   };
 
-  const loadSources = async () => {
+  const loadDatabaseStats = async () => {
+    setIsLoadingStats(true);
     try {
-      const response = await fetch('/api/rag/sources');
-      if (response.ok) {
-        const data = await response.json();
-        // Handle the response structure from RAG service
-        const sourcesArray = data.sources || data || [];
-        
-        // Transform the data to match the expected RAGSource interface
-        const transformedSources = (sourcesArray || []).map((source: any) => ({
-          id: source.id,
-          type: source.source?.startsWith('http') ? 'url' : 'file',
-          name: source.title || source.source || 'Unknown',
-          source: source.source || '',
-          status: 'completed', // RAG service doesn't return status, assume completed
-          vectorCount: source.chunk_count || 0,
-          ingestedAt: source.created_at || new Date().toISOString(),
-        }));
-        
-        setSources(transformedSources);
+      // Try to get stats from the stats endpoint first
+      const statsResponse = await fetch('/api/v2/sources/stats');
+      if (statsResponse.ok) {
+        const data = await statsResponse.json();
+        // Check if we got valid data
+        if (data && (data.total_documents !== undefined || data.error)) {
+          // Even if there's an error, we might have partial data
+          setDatabaseStats({
+            total_documents: data.total_documents || 0,
+            total_chunks: data.total_chunks || 0,
+            sources: data.sources || []
+          });
+          return;
+        }
+      }
+      
+      // Fallback: Try the simple count endpoint
+      const countResponse = await fetch('/api/v2/sources/count');
+      if (countResponse.ok) {
+        const countData = await countResponse.json();
+        setDatabaseStats({
+          total_documents: countData.count || 0,
+          total_chunks: countData.count || 0,
+          sources: []
+        });
+        return;
+      }
+      
+      // Final fallback: Get basic info from health endpoint
+      const healthResponse = await fetch('/health?checkRag=true');
+      if (healthResponse.ok) {
+        const healthData = await healthResponse.json();
+        if (healthData.ragService && healthData.ragService.components) {
+          const vectorStore = healthData.ragService.components.vector_store;
+          // Create a simplified stats object from health data
+          setDatabaseStats({
+            total_documents: vectorStore.document_count || 0,
+            total_chunks: vectorStore.document_count || 0, // Approximate
+            sources: [] // Health endpoint doesn't provide source breakdown
+          });
+        } else {
+          // Set empty stats instead of throwing
+          setDatabaseStats({
+            total_documents: 0,
+            total_chunks: 0,
+            sources: []
+          });
+        }
       } else {
-        console.warn('Failed to load sources, status:', response.status);
-        setSources([]);
+        // Set empty stats if all fails
+        setDatabaseStats({
+          total_documents: 0,
+          total_chunks: 0,
+          sources: []
+        });
       }
     } catch (error) {
-      console.error('Failed to load sources:', error);
-      setSources([]); // Set to empty array on error
+      console.error('Error loading database stats:', error);
+      // Don't show error toast for initial load, just set empty stats
+      setDatabaseStats({
+        total_documents: 0,
+        total_chunks: 0,
+        sources: []
+      });
+    } finally {
+      setIsLoadingStats(false);
     }
   };
 
-  const addIngestionLog = (message: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    const logEntry = `[${timestamp}] ${message}`;
-    setIngestionLogs(prev => [...prev, logEntry]);
+  const handlePurgeDatabase = async () => {
+    setIsPurging(true);
+    
+    try {
+      const response = await fetch('/api/v2/database/purge', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        toast.success('Database purged successfully');
+        // Clear ingestion history as well
+        setIngestionHistory([]);
+        localStorage.removeItem('ingestionHistory');
+        // Reload database stats
+        await loadDatabaseStats();
+      } else {
+        toast.error(data.message || 'Failed to purge database');
+      }
+    } catch (error) {
+      console.error('Database purge error:', error);
+      toast.error('Network error during database purge');
+    } finally {
+      setIsPurging(false);
+    }
   };
 
-  const handleUrlIngestion = async () => {
+  const handleIngestURL = async () => {
     if (!urlInput.trim()) {
+      toast.error('Please enter a URL');
+      return;
+    }
+
+    // Validate URL
+    try {
+      new URL(urlInput);
+    } catch {
       toast.error('Please enter a valid URL');
       return;
     }
 
-    // Reset state
-    setIsIngestingUrl(true);
-    setIngestionProgress(0);
-    setIngestionLogs([]);
-    setShowIngestionConsole(true);
-
+    setIsIngesting(true);
+    setShowIngestionProgress(true);
+    setCurrentIngestionUrl(urlInput);
+    
     try {
-      addIngestionLog(`🚀 Starting URL ingestion for: ${urlInput.trim()}`);
-      setIngestionProgress(10);
-
-      addIngestionLog('📡 Sending request to RAG service...');
-      setIngestionProgress(20);
-
-      const requestBody = {
-        url: urlInput.trim(),
-        enable_crawling: enableCrawling,
-        max_depth: enableCrawling ? maxDepth : 0,
-        max_pages: enableCrawling ? maxPages : 1,
-        follow_external_links: enableCrawling ? followExternalLinks : false
-      };
-
-      addIngestionLog(`🔧 Crawling settings: depth=${requestBody.max_depth}, pages=${requestBody.max_pages}, external=${requestBody.follow_external_links}`);
-
-      const response = await fetch('/api/rag/ingest/url', {
+      const response = await fetch('/api/rag/ingest', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({
+          url: urlInput,
+          type: 'web',
+          forceRefresh: forceRefresh,
+          metadata: {
+            source: 'manual_ingestion',
+            ingested_from: 'config_page'
+          }
+        }),
       });
 
-      addIngestionLog('📥 Response received from server');
-      setIngestionProgress(40);
-
-      if (response.ok) {
-        const result = await response.json();
-        addIngestionLog('✅ URL ingestion started successfully');
-        setIngestionProgress(60);
-
-        // Handle the response structure
-        const data = result.data || result;
-        addIngestionLog(`📊 Source ID: ${data.id || data.source_id || 'N/A'}`);
-        addIngestionLog(`🔢 Documents created: ${data.document_count || data.vectors_created || 'N/A'}`);
-        setIngestionProgress(80);
-
-        addIngestionLog('🔄 Refreshing sources and status...');
-        await Promise.all([loadSources(), loadRAGStatus()]);
-        setIngestionProgress(100);
-
-        addIngestionLog('🎉 Ingestion completed successfully!');
-        toast.success('URL ingestion completed successfully');
-        setUrlInput('');
-      } else {
-        const error = await response.json();
-        addIngestionLog(`❌ Error: ${error.message || 'Failed to ingest URL'}`);
-        toast.error(error.message || 'Failed to ingest URL');
-      }
-    } catch (error) {
-      addIngestionLog(`💥 Network error: ${error.message}`);
-      toast.error('Network error occurred');
-    } finally {
-      setIsIngestingUrl(false);
-    }
-  };
-
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileUpload(e.dataTransfer.files[0]);
-    }
-  };
-
-  const handleFileUpload = async (file: File) => {
-    console.log('📁 File upload started:', {
-      name: file.name,
-      type: file.type,
-      size: file.size
-    });
-
-    const maxSize = 50 * 1024 * 1024; // 50MB
-    const allowedTypes = [
-      'text/plain',
-      'text/markdown',
-      'application/pdf',
-      'text/html',
-      'application/json'
-    ];
-
-    if (file.size > maxSize) {
-      console.log('❌ File too large:', file.size, 'bytes (max:', maxSize, 'bytes)');
-      toast.error(`File size must be less than 50MB. Your file is ${(file.size / 1024 / 1024).toFixed(1)}MB`);
-      return;
-    }
-
-    if (!allowedTypes.includes(file.type)) {
-      console.log('❌ Unsupported file type:', file.type);
-      toast.error('Unsupported file type. Please use TXT, MD, PDF, HTML, or JSON files.');
-      return;
-    }
-
-    console.log('✅ File validation passed');
-    setIsUploading(true);
-    setUploadProgress(10);
-
-    try {
-      // Convert file to base64 using FileReader (more reliable for large files)
-      const base64Content = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          // Remove data URL prefix (e.g., "data:application/pdf;base64,")
-          const base64 = result.split(',')[1];
-          resolve(base64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      const data = await response.json();
       
-      console.log('📄 Base64 conversion complete, length:', base64Content.length);
-      setUploadProgress(30);
-
-      // Prepare request data matching backend expectations
-      const requestData = {
-        filename: file.name,
-        mimetype: file.type,
-        content_type: file.type,  // Include both field names for compatibility
-        content: base64Content,
-        size: file.size
-      };
-
-      console.log('📤 Sending request to backend...', {
-        filename: requestData.filename,
-        mimetype: requestData.mimetype,
-        size: requestData.size,
-        contentLength: requestData.content.length
-      });
-
-      setUploadProgress(50);
-
-      const response = await fetch('/api/rag/ingest/file', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestData),
-      });
-
-      console.log('📥 Response received:', response.status, response.statusText);
-      setUploadProgress(80);
-
       if (response.ok) {
-        const result = await response.json();
-        console.log('✅ Upload successful:', result);
-        setUploadProgress(100);
-        
-        // Handle the response structure
-        const data = result.data || result;
-        const details = data.processing_details || {};
-        let successMessage = `File uploaded successfully! Created ${data.document_count || data.vectors_created || 0} chunks.`;
-        
-        if (details.pdf_pages) {
-          successMessage += ` PDF has ${details.pdf_pages} pages.`;
-        }
-        if (details.tables_found > 0) {
-          successMessage += ` Found ${details.tables_found} tables.`;
+        if (data.status === 'success') {
+          toast.success(`Successfully ingested ${data.chunks_created} chunks from URL`);
+        } else if (data.status === 'exists') {
+          toast.info('Document already exists in the database. Use force refresh to re-ingest.');
         }
         
-        toast.success(successMessage);
-        loadSources();
-        loadRAGStatus();
+        // Add to history
+        const newEntry = {
+          url: urlInput,
+          status: data.status === 'exists' ? 'exists' : 'success',
+          timestamp: new Date().toISOString()
+        };
+        const updatedHistory = [newEntry, ...ingestionHistory].slice(0, 10); // Keep last 10
+        setIngestionHistory(updatedHistory);
+        localStorage.setItem('ingestionHistory', JSON.stringify(updatedHistory));
+        
+        // Clear input and reset force refresh
+        setUrlInput('');
+        setForceRefresh(false);
+        
+        // Reload database stats if on database tab
+        if (activeTab === 'database') {
+          loadDatabaseStats();
+        }
       } else {
-        const error = await response.json();
-        console.error('❌ Upload failed:', error);
-        toast.error(error.detail || error.message || 'Failed to upload file');
+        const errorMessage = data.message || 'Failed to ingest URL';
+        toast.error(errorMessage);
+        
+        // Add failed entry to history
+        const newEntry = {
+          url: urlInput,
+          status: 'failed',
+          timestamp: new Date().toISOString()
+        };
+        const updatedHistory = [newEntry, ...ingestionHistory].slice(0, 10);
+        setIngestionHistory(updatedHistory);
+        localStorage.setItem('ingestionHistory', JSON.stringify(updatedHistory));
       }
     } catch (error) {
-      console.error('💥 File upload error:', error);
-      toast.error('Failed to process file. Please try again.');
+      console.error('Ingestion error:', error);
+      toast.error('Network error during ingestion');
     } finally {
-      setIsUploading(false);
-      setUploadProgress(0);
+      setIsIngesting(false);
+      // Progress will auto-hide after completion
     }
-  };
-
-  const handleDeleteSource = async (sourceId: string) => {
-    try {
-      const response = await fetch('/api/rag/sources/delete', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ id: sourceId }),
-      });
-
-      if (response.ok) {
-        toast.success('Source deleted successfully');
-        loadSources();
-        loadRAGStatus();
-      } else {
-        const error = await response.json();
-        toast.error(error.message || 'Failed to delete source');
-      }
-    } catch (error) {
-      toast.error('Network error occurred');
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case 'processing':
-        return <Clock className="h-4 w-4 text-yellow-500" />;
-      case 'error':
-        return <XCircle className="h-4 w-4 text-red-500" />;
-      default:
-        return null;
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
   };
 
   return (
@@ -459,29 +335,25 @@ export default function ConfigPage() {
               Back to Chat
             </Button>
           </div>
-          <h1 className="text-3xl font-bold text-foreground mb-2">RAG Configuration</h1>
+          <h1 className="text-3xl font-bold text-foreground mb-2">Configuration</h1>
           <p className="text-muted-foreground">
-            Manage your knowledge base by ingesting URLs and files, and monitor system status.
+            Configure your chat assistant settings.
           </p>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="model" className="flex items-center gap-2">
               <Brain className="h-4 w-4" />
               LLM Model
             </TabsTrigger>
             <TabsTrigger value="ingestion" className="flex items-center gap-2">
-              <Link className="h-4 w-4" />
+              <Globe className="h-4 w-4" />
               URL Ingestion
             </TabsTrigger>
-            <TabsTrigger value="upload" className="flex items-center gap-2">
-              <Upload className="h-4 w-4" />
-              File Upload
-            </TabsTrigger>
-            <TabsTrigger value="status" className="flex items-center gap-2">
-              <Database className="h-4 w-4" />
-              RAG Status
+            <TabsTrigger value="database" className="flex items-center gap-2">
+              <Trash2 className="h-4 w-4" />
+              Database
             </TabsTrigger>
           </TabsList>
 
@@ -580,379 +452,286 @@ export default function ConfigPage() {
               <CardHeader>
                 <CardTitle>URL Ingestion</CardTitle>
                 <CardDescription>
-                  Add web content to your knowledge base by providing URLs. The system will crawl and process the content.
+                  Add external URLs to the knowledge base. The system will scrape and index the content for improved responses.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Enter URL (e.g., https://example.com/article)"
-                    value={urlInput}
-                    onChange={(e) => setUrlInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleUrlIngestion()}
-                    disabled={isIngestingUrl}
-                  />
-                  <Button
-                    onClick={handleUrlIngestion}
-                    disabled={isIngestingUrl || !urlInput.trim()}
-                  >
-                    {isIngestingUrl ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                        Ingesting...
-                      </>
-                    ) : (
-                      <>
-                        <Link className="h-4 w-4 mr-2" />
-                        Ingest URL
-                      </>
-                    )}
-                  </Button>
-                </div>
-
-                {/* Crawling Options */}
-                <div className="p-4 border rounded-lg space-y-4 bg-muted/30">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-sm font-medium">Web Crawling Options</h4>
-                      <p className="text-xs text-muted-foreground">Configure how links should be followed</p>
-                    </div>
-                    <label className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        checked={enableCrawling}
-                        onChange={(e) => setEnableCrawling(e.target.checked)}
-                        disabled={isIngestingUrl}
-                        className="rounded"
-                      />
-                      <span className="text-sm">Enable crawling</span>
-                    </label>
-                  </div>
-
-                  {enableCrawling && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div>
-                        <label className="block text-xs font-medium mb-1">Max Depth</label>
-                        <Select
-                          value={maxDepth.toString()}
-                          onValueChange={(value) => setMaxDepth(parseInt(value))}
-                          disabled={isIngestingUrl}
-                        >
-                          <SelectTrigger className="h-8">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="0">0 (Single page only)</SelectItem>
-                            <SelectItem value="1">1 (One level deep)</SelectItem>
-                            <SelectItem value="2">2 (Two levels deep)</SelectItem>
-                            <SelectItem value="3">3 (Three levels deep)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground mt-1">How many link levels to follow</p>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-medium mb-1">Max Pages</label>
-                        <Select
-                          value={maxPages.toString()}
-                          onValueChange={(value) => setMaxPages(parseInt(value))}
-                          disabled={isIngestingUrl}
-                        >
-                          <SelectTrigger className="h-8">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="5">5 pages</SelectItem>
-                            <SelectItem value="10">10 pages</SelectItem>
-                            <SelectItem value="25">25 pages</SelectItem>
-                            <SelectItem value="50">50 pages</SelectItem>
-                            <SelectItem value="100">100 pages</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground mt-1">Maximum pages to crawl</p>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-medium mb-1">External Links</label>
-                        <div className="flex items-center space-x-2 h-8">
-                          <input
-                            type="checkbox"
-                            checked={followExternalLinks}
-                            onChange={(e) => setFollowExternalLinks(e.target.checked)}
-                            disabled={isIngestingUrl}
-                            className="rounded"
-                          />
-                          <span className="text-xs">Follow external domains</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1">Include links to other websites</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="text-sm text-muted-foreground">
-                  Supported: Web pages, documentation sites, articles, and other text-based content.
-                </div>
-                
-                {/* Progress Bar */}
-                {isIngestingUrl && (
+              <CardContent className="space-y-6">
+                <div className="space-y-4">
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span>Ingestion Progress</span>
-                      <span>{ingestionProgress}%</span>
-                    </div>
-                    <div className="w-full bg-secondary rounded-full h-2">
-                      <div
-                        className="bg-primary h-2 rounded-full transition-all duration-300 ease-out"
-                        style={{ width: `${ingestionProgress}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Console Window */}
-            {showIngestionConsole && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Terminal className="h-4 w-4" />
-                      <CardTitle className="text-base">Ingestion Console</CardTitle>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowIngestionConsole(false)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="bg-black text-green-400 font-mono text-xs p-4 rounded-lg h-48 overflow-y-auto">
-                    {ingestionLogs.length === 0 ? (
-                      <div className="text-gray-500">Console output will appear here...</div>
-                    ) : (
-                      (ingestionLogs || []).map((log, index) => (
-                        <div key={index} className="mb-1">
-                          {log}
-                        </div>
-                      ))
-                    )}
-                    {isIngestingUrl && (
-                      <div className="flex items-center gap-1 mt-2">
-                        <div className="w-1 h-3 bg-green-400 animate-pulse" />
-                        <span className="text-gray-400">Processing...</span>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-
-          <TabsContent value="upload" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>File Upload</CardTitle>
-                <CardDescription>
-                  Upload documents directly to your knowledge base. Drag and drop files or click to browse.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div
-                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                    dragActive
-                      ? 'border-primary bg-primary/5'
-                      : 'border-muted-foreground/25 hover:border-muted-foreground/50'
-                  }`}
-                  onDragEnter={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDragOver={handleDrag}
-                  onDrop={handleDrop}
-                >
-                  {isUploading ? (
-                    <div className="space-y-4">
-                      <RefreshCw className="h-8 w-8 mx-auto animate-spin text-primary" />
-                      <p className="text-sm text-muted-foreground">Uploading and processing file...</p>
-                      {uploadProgress > 0 && (
-                        <div className="w-full bg-secondary rounded-full h-2">
-                          <div
-                            className="bg-primary h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${uploadProgress}%` }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <Upload className="h-8 w-8 mx-auto text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium">Drop files here or click to browse</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Supports: TXT, MD, PDF, HTML, JSON (max 50MB)
-                        </p>
-                      </div>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          console.log('🖱️ Browse files button clicked');
-                          const input = document.createElement('input');
-                          input.type = 'file';
-                          input.accept = '.txt,.md,.pdf,.html,.json';
-                          input.onchange = (e) => {
-                            console.log('📁 File selected from dialog');
-                            const file = (e.target as HTMLInputElement).files?.[0];
-                            if (file) {
-                              console.log('📂 Processing selected file:', file.name);
-                              handleFileUpload(file);
-                            } else {
-                              console.log('❌ No file selected');
-                            }
-                          };
-                          input.click();
+                    <Label htmlFor="url-input">Enter URL to Ingest</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="url-input"
+                        type="url"
+                        placeholder="https://example.com/document"
+                        value={urlInput}
+                        onChange={(e) => setUrlInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !isIngesting) {
+                            handleIngestURL();
+                          }
                         }}
+                        disabled={isIngesting}
+                      />
+                      <Button
+                        onClick={handleIngestURL}
+                        disabled={isIngesting || !urlInput.trim()}
                       >
-                        Browse Files
+                        {isIngesting ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Ingesting...
+                          </>
+                        ) : (
+                          'Ingest URL'
+                        )}
                       </Button>
                     </div>
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="force-refresh"
+                        checked={forceRefresh}
+                        onCheckedChange={(checked) => setForceRefresh(checked as boolean)}
+                      />
+                      <Label
+                        htmlFor="force-refresh"
+                        className="text-sm font-normal cursor-pointer"
+                      >
+                        Force refresh (re-ingest even if document already exists)
+                      </Label>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      The content will be automatically processed and added to the RAG knowledge base.
+                    </p>
+                  </div>
+
+                  {/* Ingestion Progress Console */}
+                  {showIngestionProgress && currentIngestionUrl && (
+                    <div className="mt-4">
+                      <IngestionConsole
+                        url={currentIngestionUrl}
+                        onComplete={(success) => {
+                          setShowIngestionProgress(false);
+                          setCurrentIngestionUrl('');
+                          // Reload database stats if on database tab
+                          if (activeTab === 'database') {
+                            loadDatabaseStats();
+                          }
+                        }}
+                      />
+                    </div>
                   )}
+
+                  {ingestionHistory.length > 0 && !showIngestionProgress && (
+                    <div className="space-y-2">
+                      <Label>Recent Ingestions</Label>
+                      <div className="space-y-2">
+                        {ingestionHistory.map((entry, index) => (
+                          <div
+                            key={index}
+                            className={`p-3 rounded-lg border ${
+                              entry.status === 'success'
+                                ? 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950'
+                                : entry.status === 'exists'
+                                ? 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950'
+                                : 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">{entry.url}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {new Date(entry.timestamp).toLocaleString()}
+                                </p>
+                              </div>
+                              <span
+                                className={`text-xs px-2 py-1 rounded ${
+                                  entry.status === 'success'
+                                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                    : entry.status === 'exists'
+                                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                                    : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                                }`}
+                              >
+                                {entry.status}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-4 bg-muted rounded-lg">
+                  <h4 className="text-sm font-medium mb-2">Tips for URL Ingestion:</h4>
+                  <ul className="text-xs text-muted-foreground space-y-1">
+                    <li>• Make sure the URL is publicly accessible</li>
+                    <li>• The system will extract text content from web pages</li>
+                    <li>• PDF documents and other file types may be supported depending on the URL</li>
+                    <li>• Large documents will be split into smaller chunks for processing</li>
+                  </ul>
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
 
-          <TabsContent value="status" className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Total Vectors</p>
-                      <p className="text-2xl font-bold">{ragStatus?.totalVectors || 0}</p>
-                    </div>
-                    <Database className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Sources</p>
-                      <p className="text-2xl font-bold">{sources?.length || 0}</p>
-                    </div>
-                    <Link className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Avg Query Time</p>
-                      <p className="text-2xl font-bold">{ragStatus?.averageQueryTime || 0}ms</p>
-                    </div>
-                    <Clock className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">System Status</p>
-                      <Badge variant={ragStatus?.isHealthy ? 'default' : 'destructive'}>
-                        {ragStatus?.isHealthy ? 'Healthy' : 'Unhealthy'}
-                      </Badge>
-                    </div>
-                    {ragStatus?.isHealthy ? (
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <XCircle className="h-4 w-4 text-red-500" />
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
+          <TabsContent value="database" className="space-y-4">
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Ingested Sources</CardTitle>
-                    <CardDescription>
-                      All content currently indexed in your knowledge base
-                    </CardDescription>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={() => { loadSources(); loadRAGStatus(); }}>
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Refresh
-                  </Button>
-                </div>
+                <CardTitle>Database Management</CardTitle>
+                <CardDescription>
+                  Manage the RAG (Retrieval-Augmented Generation) vector database that stores indexed documents.
+                </CardDescription>
               </CardHeader>
-              <CardContent>
-                {!sources || sources.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Database className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p>No sources ingested yet.</p>
-                    <p className="text-sm">Use the URL Ingestion or File Upload tabs to add content.</p>
+              <CardContent className="space-y-6">
+                {/* Database Statistics */}
+                <div className="space-y-4">
+                  <div className="p-4 border rounded-lg">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-medium">Database Statistics</h4>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={loadDatabaseStats}
+                        disabled={isLoadingStats}
+                      >
+                        <RefreshCw className={`h-4 w-4 ${isLoadingStats ? 'animate-spin' : ''}`} />
+                      </Button>
+                    </div>
+                    {isLoadingStats ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : databaseStats ? (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="p-3 bg-muted rounded-lg">
+                            <p className="text-xs text-muted-foreground">Total Documents</p>
+                            <p className="text-lg font-semibold">{databaseStats.total_documents}</p>
+                          </div>
+                          <div className="p-3 bg-muted rounded-lg">
+                            <p className="text-xs text-muted-foreground">Total Chunks</p>
+                            <p className="text-lg font-semibold">{databaseStats.total_chunks}</p>
+                          </div>
+                        </div>
+                        
+                        {databaseStats.sources && databaseStats.sources.length > 0 ? (
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-2">Indexed Sources:</p>
+                            <div className="space-y-2">
+                              {databaseStats.sources.map((source, index) => (
+                                <div key={index} className="p-2 bg-muted/50 rounded text-xs">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-medium truncate flex-1 mr-2">
+                                      {source.source}
+                                    </span>
+                                    <span className="text-muted-foreground">
+                                      {source.document_count} docs, {source.chunk_count} chunks
+                                    </span>
+                                  </div>
+                                  <p className="text-muted-foreground mt-1">
+                                    Last updated: {new Date(source.last_updated).toLocaleString()}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : databaseStats.total_documents === 0 ? (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            No documents indexed yet. Use the URL Ingestion tab to add content.
+                          </p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground text-center py-2">
+                            Source breakdown not available
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        Unable to load database statistics
+                      </p>
+                    )}
                   </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Vectors</TableHead>
-                        <TableHead>Ingested</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {Array.isArray(sources) && sources.map((source) => (
-                        <TableRow key={source.id}>
-                          <TableCell className="font-medium">
-                            <div className="max-w-xs truncate" title={source.name}>
-                              {source.name}
-                            </div>
-                            {source.error && (
-                              <div className="text-xs text-red-500 mt-1" title={source.error}>
-                                Error: {source.error}
-                              </div>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">
-                              {source.type === 'url' ? 'URL' : 'File'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              {getStatusIcon(source.status)}
-                              <span className="capitalize">{source.status}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell>{source.vectorCount || 0}</TableCell>
-                          <TableCell>{formatDate(source.ingestedAt)}</TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteSource(source.id)}
-                              className="text-red-500 hover:text-red-700"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
+
+                  <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5" />
+                      <div className="flex-1">
+                        <h4 className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                          Purge Database
+                        </h4>
+                        <p className="text-sm text-yellow-600 dark:text-yellow-300 mt-1">
+                          This action will permanently delete all indexed documents from the vector database. 
+                          You'll need to re-ingest any URLs or documents you want to use.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div>
+                      <h4 className="text-sm font-medium">Clear Vector Database</h4>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Remove all indexed documents and start fresh
+                      </p>
+                    </div>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button 
+                          variant="destructive" 
+                          size="sm"
+                          disabled={isPurging}
+                        >
+                          {isPurging ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Purging...
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Purge Database
+                            </>
+                          )}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This action cannot be undone. This will permanently delete all indexed documents 
+                            from the vector database, including:
+                            <ul className="mt-2 space-y-1 list-disc list-inside">
+                              <li>All ingested URLs and their content</li>
+                              <li>All document embeddings and metadata</li>
+                              <li>All conversation history references</li>
+                            </ul>
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={handlePurgeDatabase}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                          >
+                            Yes, purge database
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+
+                  <div className="p-4 bg-muted rounded-lg">
+                    <h4 className="text-sm font-medium mb-2">Database Information:</h4>
+                    <ul className="text-xs text-muted-foreground space-y-1">
+                      <li>• The database stores document embeddings for semantic search</li>
+                      <li>• Purging will not affect your chat history</li>
+                      <li>• You can re-ingest documents at any time</li>
+                      <li>• The database uses ChromaDB for vector storage</li>
+                    </ul>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

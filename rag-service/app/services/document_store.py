@@ -1,347 +1,250 @@
-import logging
-import json
-import asyncio
-from typing import Dict, Any, List, Optional, Protocol
+"""Document store service for managing documents."""
+
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
-from dataclasses import dataclass, asdict
-from abc import ABC, abstractmethod
+import asyncio
 
-logger = logging.getLogger(__name__)
+from app.core.vectorstore import VectorStoreManager
+from app.core.logging import get_logger
+from app.models.documents import (
+    Document, DocumentSearchRequest, DocumentSearchResult,
+    DocumentListResponse
+)
+from app.models.query import Source
+from app.services.cache import CacheService, QueryCache
 
-
-@dataclass
-class SourceMetadata:
-    """Source metadata model."""
-    id: str
-    title: str
-    source: str
-    content_type: str
-    chunk_count: int
-    created_at: datetime
-    metadata: Optional[Dict[str, Any]] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        data = asdict(self)
-        data["created_at"] = self.created_at.isoformat()
-        return data
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SourceMetadata":
-        """Create from dictionary."""
-        data = data.copy()
-        if isinstance(data["created_at"], str):
-            data["created_at"] = datetime.fromisoformat(data["created_at"])
-        return cls(**data)
+logger = get_logger(__name__)
 
 
-class SourceMetadataStore(ABC):
-    """Abstract interface for source metadata storage."""
+class DocumentStore:
+    """Service for document storage and retrieval."""
     
-    @abstractmethod
-    async def store(self, source: SourceMetadata) -> None:
-        """Store source metadata."""
-        pass
-    
-    @abstractmethod
-    async def get(self, source_id: str) -> Optional[SourceMetadata]:
-        """Get source metadata by ID."""
-        pass
-    
-    @abstractmethod
-    async def list_all(self) -> List[SourceMetadata]:
-        """List all source metadata."""
-        pass
-    
-    @abstractmethod
-    async def delete(self, source_id: str) -> bool:
-        """Delete source metadata."""
-        pass
-    
-    @abstractmethod
-    async def cleanup(self) -> None:
-        """Cleanup resources."""
-        pass
-
-
-class InMemorySourceMetadataStore(SourceMetadataStore):
-    """In-memory implementation for development/testing."""
-    
-    def __init__(self):
-        self._sources: Dict[str, SourceMetadata] = {}
-    
-    async def store(self, source: SourceMetadata) -> None:
-        """Store source metadata."""
-        self._sources[source.id] = source
-        logger.debug(f"Stored source metadata for {source.id}")
-    
-    async def get(self, source_id: str) -> Optional[SourceMetadata]:
-        """Get source metadata by ID."""
-        return self._sources.get(source_id)
-    
-    async def list_all(self) -> List[SourceMetadata]:
-        """List all source metadata."""
-        return list(self._sources.values())
-    
-    async def delete(self, source_id: str) -> bool:
-        """Delete source metadata."""
-        if source_id in self._sources:
-            del self._sources[source_id]
-            logger.info(f"Deleted source {source_id}")
-            return True
-        return False
-    
-    async def cleanup(self) -> None:
-        """Cleanup resources."""
-        self._sources.clear()
-
-
-class DatabaseSourceMetadataStore(SourceMetadataStore):
-    """Database implementation for production (PostgreSQL)."""
-    
-    def __init__(self, database_url: str):
-        self.database_url = database_url
-        self._pool = None
-    
-    async def _get_pool(self):
-        """Get or create database connection pool."""
-        if self._pool is None:
-            try:
-                import asyncpg
-                self._pool = await asyncpg.create_pool(self.database_url)
-                await self._create_table()
-            except ImportError:
-                logger.error("asyncpg not installed. Install with: pip install asyncpg")
-                raise
-            except Exception as e:
-                logger.error(f"Failed to create database pool: {e}")
-                raise
-        return self._pool
-    
-    async def _create_table(self):
-        """Create source metadata table if it doesn't exist."""
-        async with self._pool.acquire() as conn:
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS source_metadata (
-                    id VARCHAR(255) PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    source TEXT NOT NULL,
-                    content_type VARCHAR(100) NOT NULL,
-                    chunk_count INTEGER NOT NULL,
-                    created_at TIMESTAMP NOT NULL,
-                    metadata JSONB
-                )
-            """)
-            # Create index for faster queries
-            await conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_source_metadata_created_at 
-                ON source_metadata(created_at DESC)
-            """)
-    
-    async def store(self, source: SourceMetadata) -> None:
-        """Store source metadata."""
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO source_metadata 
-                (id, title, source, content_type, chunk_count, created_at, metadata)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT (id) DO UPDATE SET
-                    title = EXCLUDED.title,
-                    source = EXCLUDED.source,
-                    content_type = EXCLUDED.content_type,
-                    chunk_count = EXCLUDED.chunk_count,
-                    created_at = EXCLUDED.created_at,
-                    metadata = EXCLUDED.metadata
-            """, source.id, source.title, source.source, source.content_type,
-                source.chunk_count, source.created_at, 
-                json.dumps(source.metadata) if source.metadata else None)
-        logger.debug(f"Stored source metadata for {source.id}")
-    
-    async def get(self, source_id: str) -> Optional[SourceMetadata]:
-        """Get source metadata by ID."""
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM source_metadata WHERE id = $1", source_id
-            )
-            if row:
-                metadata = json.loads(row['metadata']) if row['metadata'] else None
-                return SourceMetadata(
-                    id=row['id'],
-                    title=row['title'],
-                    source=row['source'],
-                    content_type=row['content_type'],
-                    chunk_count=row['chunk_count'],
-                    created_at=row['created_at'],
-                    metadata=metadata
-                )
-        return None
-    
-    async def list_all(self) -> List[SourceMetadata]:
-        """List all source metadata."""
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM source_metadata ORDER BY created_at DESC"
-            )
-            result = []
-            for row in rows:
-                metadata = json.loads(row['metadata']) if row['metadata'] else None
-                result.append(SourceMetadata(
-                    id=row['id'],
-                    title=row['title'],
-                    source=row['source'],
-                    content_type=row['content_type'],
-                    chunk_count=row['chunk_count'],
-                    created_at=row['created_at'],
-                    metadata=metadata
-                ))
-            return result
-    
-    async def delete(self, source_id: str) -> bool:
-        """Delete source metadata."""
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            result = await conn.execute(
-                "DELETE FROM source_metadata WHERE id = $1", source_id
-            )
-            deleted = result == "DELETE 1"
-            if deleted:
-                logger.info(f"Deleted source {source_id}")
-            return deleted
-    
-    async def cleanup(self) -> None:
-        """Cleanup resources."""
-        if self._pool:
-            await self._pool.close()
-            self._pool = None
-
-
-class DocumentStoreService:
-    """Service for managing document store operations."""
-    
-    def __init__(self, document_store, metadata_store: SourceMetadataStore):
-        self.document_store = document_store
-        self.metadata_store = metadata_store
-    
-    async def store_source_metadata(
+    def __init__(
         self,
-        source_id: str,
-        title: str,
-        source: str,
-        content_type: str,
-        chunk_count: int,
-        metadata: Optional[Dict[str, Any]] = None
+        vector_store_manager: VectorStoreManager,
+        cache_service: Optional[CacheService] = None
     ):
-        """Store metadata about an ingested source."""
-        source_metadata = SourceMetadata(
-            id=source_id,
-            title=title,
-            source=source,
-            content_type=content_type,
-            chunk_count=chunk_count,
-            created_at=datetime.utcnow(),
-            metadata=metadata
-        )
-        await self.metadata_store.store(source_metadata)
-        logger.info(f"Stored source metadata for {source_id}")
-    
-    async def list_sources(self, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
-        """List all sources with pagination."""
-        try:
-            # Get sources from persistent store
-            all_sources = await self.metadata_store.list_all()
-            
-            # Sort by creation date (newest first) - already handled in DB store
-            total = len(all_sources)
-            
-            # Apply pagination
-            paginated = all_sources[offset:offset + limit]
-            
-            return {
-                "items": [src.to_dict() for src in paginated],
-                "total": total
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to list sources from metadata store: {e}")
-            
-            # Fallback: try to reconstruct from documents in the store
-            try:
-                all_docs = self.document_store.filter_documents()
-                
-                # Group documents by source
-                sources_by_id = {}
-                for doc in all_docs:
-                    source_id = doc.meta.get("source_id", doc.meta.get("source", "unknown"))
-                    if source_id not in sources_by_id:
-                        sources_by_id[source_id] = {
-                            "id": source_id,
-                            "title": doc.meta.get("filename", doc.meta.get("title", source_id)),
-                            "source": doc.meta.get("source", source_id), 
-                            "content_type": doc.meta.get("content_type", "text/plain"),
-                            "chunk_count": 0,
-                            "created_at": doc.meta.get("indexed_at", datetime.utcnow().isoformat()),
-                            "metadata": doc.meta
-                        }
-                    sources_by_id[source_id]["chunk_count"] += 1
-                
-                # Convert to list and sort
-                reconstructed_sources = list(sources_by_id.values())
-                reconstructed_sources.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-                
-                # Apply pagination
-                paginated = reconstructed_sources[offset:offset + limit]
-                
-                return {
-                    "items": paginated,
-                    "total": len(reconstructed_sources)
-                }
-                
-            except Exception as fallback_error:
-                logger.error(f"Failed to reconstruct sources from documents: {fallback_error}")
-                return {"items": [], "total": 0}
-    
-    async def get_source(self, source_id: str) -> Optional[Dict[str, Any]]:
-        """Get a specific source by ID."""
-        try:
-            source = await self.metadata_store.get(source_id)
-            if source:
-                return source.to_dict()
-        except Exception as e:
-            logger.error(f"Failed to get source {source_id} from metadata store: {e}")
+        """Initialize document store."""
+        self.vector_store = vector_store_manager
+        self.cache_service = cache_service
+        self.query_cache = QueryCache(cache_service) if cache_service else None
         
-        return None
-    
-    async def delete_source(self, source_id: str) -> bool:
-        """Delete a source."""
+    async def search(
+        self,
+        request: DocumentSearchRequest
+    ) -> List[DocumentSearchResult]:
+        """Search for documents."""
         try:
-            return await self.metadata_store.delete(source_id)
+            # Check cache first
+            if self.query_cache:
+                cached = await self.query_cache.get_results(
+                    request.query,
+                    request.filters
+                )
+                if cached:
+                    logger.info("Query cache hit")
+                    return self._deserialize_results(cached)
+                    
+            # Perform vector search
+            results = await self.vector_store.search(
+                query=request.query,
+                k=request.limit,
+                filter_dict=request.filters,
+                search_type=settings.retrieval_search_type
+            )
+            
+            # Convert to response format
+            search_results = []
+            for doc, score in results:
+                # Extract document from metadata
+                doc_result = DocumentSearchResult(
+                    document=Document(
+                        id=doc.metadata.get("id", ""),
+                        content=doc.page_content,
+                        metadata=doc.metadata,
+                        created_at=doc.metadata.get("created_at", datetime.utcnow())
+                    ),
+                    score=score if request.include_scores else None,
+                    highlights=self._extract_highlights(doc.page_content, request.query)
+                )
+                search_results.append(doc_result)
+                
+            # Cache results
+            if self.query_cache:
+                await self.query_cache.set_results(
+                    request.query,
+                    self._serialize_results(search_results),
+                    request.filters
+                )
+                
+            return search_results
+            
         except Exception as e:
-            logger.error(f"Failed to delete source {source_id} from metadata store: {e}")
+            logger.error(f"Document search failed: {e}")
+            raise
+            
+    async def get_by_id(self, document_id: str) -> Optional[Document]:
+        """Get document by ID."""
+        try:
+            # Search by metadata filter
+            results = await self.vector_store.search(
+                query="",  # Empty query
+                k=1,
+                filter_dict={"id": document_id}
+            )
+            
+            if results:
+                doc, _ = results[0]
+                return Document(
+                    id=doc.metadata.get("id", ""),
+                    content=doc.page_content,
+                    metadata=doc.metadata,
+                    created_at=doc.metadata.get("created_at", datetime.utcnow())
+                )
+                
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get document {document_id}: {e}")
+            return None
+            
+    async def list_documents(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        filters: Optional[Dict[str, Any]] = None
+    ) -> DocumentListResponse:
+        """List documents with pagination."""
+        try:
+            # Get collection stats
+            stats = await self.vector_store.get_collection_stats()
+            total_count = stats.get("document_count", 0)
+            
+            # For now, return empty list as we need to implement proper listing
+            # This would require additional metadata storage
+            return DocumentListResponse(
+                documents=[],
+                total=total_count,
+                page=page,
+                page_size=page_size
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to list documents: {e}")
+            raise
+            
+    async def delete_by_id(self, document_id: str) -> bool:
+        """Delete document by ID."""
+        try:
+            # Find all chunks with this parent ID
+            results = await self.vector_store.search(
+                query="",
+                k=1000,  # Get all chunks
+                filter_dict={"parent_id": document_id}
+            )
+            
+            # Extract chunk IDs
+            chunk_ids = [doc.metadata.get("id") for doc, _ in results]
+            
+            if chunk_ids:
+                # Delete from vector store
+                success = await self.vector_store.delete_documents(ids=chunk_ids)
+                
+                # Clear from cache
+                if self.cache_service:
+                    await self.cache_service.delete(f"doc:{document_id}")
+                    
+                return success
+                
             return False
-    
-    async def check_duplicate_by_hash(self, content_hash: str) -> Optional[str]:
-        """Check if a document with the same content hash already exists.
-        
-        Returns the source_id if a duplicate is found, None otherwise.
-        """
-        try:
-            # Get all sources and check their content hashes
-            all_sources = await self.metadata_store.list_all()
-            for source in all_sources:
-                if source.metadata and source.metadata.get("content_hash") == content_hash:
-                    logger.info(f"Found duplicate document with hash {content_hash[:8]}... (source: {source.id})")
-                    return source.id
+            
         except Exception as e:
-            logger.error(f"Error checking for duplicate content: {e}")
+            logger.error(f"Failed to delete document {document_id}: {e}")
+            return False
+            
+    def convert_to_sources(
+        self,
+        documents: List[Tuple[Any, float]],
+        max_sources: int = 5
+    ) -> List[Source]:
+        """Convert search results to sources for citations."""
+        sources = []
         
-        return None
-    
-    async def cleanup(self):
-        """Cleanup resources."""
-        try:
-            await self.metadata_store.cleanup()
-        except Exception as e:
-            logger.error(f"Error during metadata store cleanup: {e}")
+        for doc, score in documents[:max_sources]:
+            source = Source(
+                id=doc.metadata.get("id", ""),
+                text=doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content,
+                title=doc.metadata.get("title"),
+                url=doc.metadata.get("source"),
+                section=doc.metadata.get("section"),
+                page=doc.metadata.get("page_number"),
+                score=score,
+                metadata={
+                    "type": doc.metadata.get("type"),
+                    "last_modified": doc.metadata.get("last_modified"),
+                    "tags": doc.metadata.get("tags", [])
+                }
+            )
+            sources.append(source)
+            
+        return sources
+        
+    def _extract_highlights(self, content: str, query: str) -> List[str]:
+        """Extract highlighted snippets from content."""
+        highlights = []
+        
+        # Simple keyword highlighting
+        query_terms = query.lower().split()
+        sentences = content.split(". ")
+        
+        for sentence in sentences:
+            sentence_lower = sentence.lower()
+            if any(term in sentence_lower for term in query_terms):
+                # Trim to reasonable length
+                if len(sentence) > 200:
+                    sentence = sentence[:200] + "..."
+                highlights.append(sentence)
+                
+                if len(highlights) >= 3:
+                    break
+                    
+        return highlights
+        
+    def _serialize_results(self, results: List[DocumentSearchResult]) -> Dict:
+        """Serialize results for caching."""
+        return {
+            "results": [
+                {
+                    "document": {
+                        "id": r.document.id,
+                        "content": r.document.content,
+                        "metadata": r.document.metadata.model_dump() if hasattr(r.document.metadata, 'model_dump') else r.document.metadata,
+                        "created_at": r.document.created_at.isoformat()
+                    },
+                    "score": r.score,
+                    "highlights": r.highlights
+                }
+                for r in results
+            ],
+            "cached_at": datetime.utcnow().isoformat()
+        }
+        
+    def _deserialize_results(self, cached: Dict) -> List[DocumentSearchResult]:
+        """Deserialize cached results."""
+        results = []
+        
+        for item in cached.get("results", []):
+            doc_data = item["document"]
+            result = DocumentSearchResult(
+                document=Document(
+                    id=doc_data["id"],
+                    content=doc_data["content"],
+                    metadata=doc_data["metadata"],
+                    created_at=datetime.fromisoformat(doc_data["created_at"])
+                ),
+                score=item.get("score"),
+                highlights=item.get("highlights", [])
+            )
+            results.append(result)
+            
+        return results

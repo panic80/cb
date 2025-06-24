@@ -1,102 +1,115 @@
-from typing import Optional
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+"""Configuration settings for RAG service."""
+
+from pydantic_settings import BaseSettings
+from typing import Optional, List
+import os
 
 
 class Settings(BaseSettings):
     """Application settings."""
     
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False
-    )
-    
-    # OpenAI Configuration
-    OPENAI_API_KEY: str = Field(..., description="OpenAI API key")
+    # API Configuration
+    app_name: str = "CF Travel Instructions RAG Service"
+    app_version: str = "1.0.0"
+    api_prefix: str = "/api/v1"
+    debug: bool = False
     
     # Server Configuration
-    HOST: str = Field(default="0.0.0.0", description="Server host")
-    PORT: int = Field(default=8000, description="Server port")
-    RELOAD: bool = Field(default=False, description="Enable auto-reload")
+    host: str = "0.0.0.0"
+    port: int = 8000
+    workers: int = 1
     
-    # Database Configuration
-    DATABASE_URL: Optional[str] = Field(default=None, description="PostgreSQL database URL")
+    # CORS
+    cors_origins: List[str] = ["http://localhost:3000", "http://localhost:3001"]
+    
+    # OpenAI Configuration
+    openai_api_key: Optional[str] = None
+    openai_embedding_model: str = "text-embedding-3-large"
+    openai_embedding_dimensions: int = 3072  # Maximum dimensions for text-embedding-3-large
+    openai_chat_model: str = "gpt-4.1-mini"
+    
+    # Google Configuration
+    google_api_key: Optional[str] = None
+    google_embedding_model: str = "models/embedding-001"
+    google_chat_model: str = "gemini-pro"
+    
+    # Anthropic Configuration
+    anthropic_api_key: Optional[str] = None
+    anthropic_chat_model: str = "claude-3-opus-20240229"
     
     # Vector Store Configuration
-    VECTOR_STORE_TYPE: str = Field(default="memory", description="Vector store type: memory, chroma, pgvector")
-    CHROMA_PERSIST_PATH: str = Field(default="./chroma_db", description="Chroma persistence path")
+    vector_store_type: str = "chroma"  # chroma or qdrant
+    chroma_persist_directory: str = "./chroma_db"
+    chroma_collection_name: str = "travel_instructions"
     
     # Document Processing
-    # Smaller chunks and less overlap to reduce semantic dilution
-    CHUNK_SIZE: int = Field(default=350, description="Document chunk size in tokens")
-    CHUNK_OVERLAP: int = Field(default=50, description="Document chunk overlap in tokens")
-    MAX_FILE_SIZE_MB: int = Field(default=100, description="Maximum file size in MB")
+    chunk_size: int = 256
+    chunk_overlap: int = 40
+    max_chunks_per_query: int = 10  # Increased to provide more context
+    source_preview_max_length: int = 5000  # Max characters for source preview (0 = no limit)
     
-    # Chunking Strategy Configuration
-    CHUNKING_STRATEGY: str = Field(default="table_aware", description="Chunking strategy: fixed, semantic, table_aware, propositions")
-    SEMANTIC_BREAKPOINT_METHOD: str = Field(default="percentile", description="Semantic chunking method: percentile, interquartile, gradient")
-    SEMANTIC_BREAKPOINT_THRESHOLD: float = Field(default=95.0, description="Threshold for semantic chunking (0-100)")
-    MIN_CHUNK_SIZE: int = Field(default=100, description="Minimum chunk size in tokens")
-    MAX_CHUNK_SIZE: int = Field(default=1000, description="Maximum chunk size in tokens")
-    PRESERVE_DOCUMENT_STRUCTURE: bool = Field(default=True, description="Preserve document structure (headings, sections)")
-    ENABLE_CHUNK_QUALITY_METRICS: bool = Field(default=True, description="Enable chunk quality metrics logging")
-    
-    # Model Configuration
-    EMBEDDING_MODEL: str = Field(default="text-embedding-3-large", description="OpenAI embedding model")
-    LLM_MODEL: str = Field(default="o4-mini", description="OpenAI LLM model")
-    MAX_TOKENS: int = Field(default=4096, description="Maximum tokens for LLM response")
-    
-    # Security
-    JWT_SECRET_KEY: Optional[str] = Field(default=None, description="JWT secret key")
-    RATE_LIMIT_PER_MINUTE: int = Field(default=60, description="Rate limit per minute")
-    
-    # Logging
-    LOG_LEVEL: str = Field(default="INFO", description="Logging level")
-    LOG_FILE: str = Field(default="rag_service.log", description="Log file path")
-    
-    # RAG Pipeline Configuration
-    TOP_K_RETRIEVAL: int = Field(default=30, description="Number of documents to retrieve")
-    TOP_K_RERANKING: int = Field(default=10, description="Number of documents after reranking")
-    TEMPERATURE: float = Field(default=0.7, description="LLM temperature")
+    # Parallel Processing Configuration
+    parallel_chunk_workers: int = 4
+    parallel_embedding_workers: int = 8
+    embedding_batch_size: int = 20
+    max_concurrent_embeddings: int = 30
+    vector_store_batch_size: int = 200
+    parallel_retrieval_limit: int = 10  # Maximum concurrent retrieval pipelines
+    retriever_timeout: float = 10.0  # Timeout for each retriever in seconds
     
     # Retrieval Configuration
-    DEFAULT_RETRIEVAL_MODE: str = Field(default="hybrid", description="Default retrieval mode: embedding, bm25, hybrid")
-    # Balance lexical and semantic contributions
-    BM25_WEIGHT: float = Field(default=0.5, description="Weight for BM25 in hybrid retrieval (0-1)")
-    EMBEDDING_WEIGHT: float = Field(default=0.5, description="Weight for embedding in hybrid retrieval (0-1)")
-    RERANKER_MODEL: str = Field(default="cross-encoder/ms-marco-MiniLM-L-6-v2", description="Model for reranking")
-    ENABLE_METADATA_RANKING: bool = Field(default=True, description="Enable metadata-based ranking")
-    METADATA_RANKING_WEIGHT: float = Field(default=0.3, description="Weight for metadata ranking (0-1)")
+    retrieval_search_type: str = "similarity"  # Changed from mmr to similarity
+    retrieval_k: int = 10  # Increased from 5
+    retrieval_fetch_k: int = 20  # Increased from 10
+    retrieval_lambda_mult: float = 0.7  # Only used for MMR
     
-    # Enhanced Pipeline Configuration
-    # Use the richer enhanced pipeline by default
-    USE_ENHANCED_PIPELINE: bool = Field(default=True, description="Use enhanced pipeline by default")
-    ENABLE_QUERY_EXPANSION: bool = Field(default=True, description="Enable query expansion")
-    ENABLE_SOURCE_FILTERING: bool = Field(default=True, description="Enable source-aware filtering")
-    ENABLE_DIVERSITY_RANKING: bool = Field(default=True, description="Enable diversity ranking")
-    MAX_SOURCES_PER_QUERY: int = Field(default=1, description="Maximum sources per query result")
+    # Caching Configuration
+    redis_url: Optional[str] = "redis://localhost:6379"
+    cache_ttl: int = 3600  # 1 hour
+    embedding_cache_ttl: int = 604800  # 1 week
     
-    # Web Crawling Configuration
-    CRAWL_MAX_DEPTH: int = Field(default=1, description="Maximum crawling depth (0 = single page, 1 = one level deep)")
-    CRAWL_MAX_PAGES: int = Field(default=10, description="Maximum number of pages to crawl per URL")
-    CRAWL_DELAY: float = Field(default=1.0, description="Delay between requests in seconds")
-    CRAWL_RESPECT_ROBOTS: bool = Field(default=True, description="Respect robots.txt rules")
-    CRAWL_FOLLOW_EXTERNAL: bool = Field(default=False, description="Follow links to external domains")
-    CRAWL_TIMEOUT: int = Field(default=30, description="Request timeout in seconds")
-    CRAWL_MAX_FILE_SIZE_MB: int = Field(default=10, description="Maximum file size to download in MB")
-    CRAWL_USER_AGENT: str = Field(default="Haystack WebCrawler/1.0", description="User agent for web requests")
+    # Canada.ca Scraping
+    canada_ca_base_url: str = "https://www.canada.ca"
+    travel_instructions_url: str = "https://www.canada.ca/en/department-national-defence/services/benefits-military/pay-pension-benefits/benefits/canadian-forces-temporary-duty-travel-instructions.html"
+    scraping_timeout: int = 30
+    scraping_retry_count: int = 3
     
-    @property
-    def CRAWL_MAX_FILE_SIZE_BYTES(self) -> int:
-        """Get max crawl file size in bytes."""
-        return self.CRAWL_MAX_FILE_SIZE_MB * 1024 * 1024
+    # Rate Limiting
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = 60
+    rate_limit_period: int = 60  # seconds
     
-    @property
-    def MAX_FILE_SIZE_BYTES(self) -> int:
-        """Get max file size in bytes."""
-        return self.MAX_FILE_SIZE_MB * 1024 * 1024
+    # Streaming Configuration
+    enable_streaming: bool = True
+    sse_timeout: int = 300  # 5 minutes
+    sse_buffer_size: int = 1024  # 1KB per chunk
+    max_streaming_connections: int = 150  # Support 100+ concurrent users with buffer
+    streaming_chunk_delay: float = 0.001  # 1ms delay between chunks for backpressure
+    streaming_first_token_target_ms: int = 500  # Target for first token latency
+    
+    # Logging
+    log_level: str = "INFO"
+    log_format: str = "json"
+    
+    class Config:
+        env_file = ".env"
+        env_prefix = "RAG_"
+        case_sensitive = False
+        extra = "ignore"  # Allow extra fields in .env file
 
 
 # Create settings instance
 settings = Settings()
+
+# Override with environment variables
+if os.getenv("OPENAI_API_KEY"):
+    settings.openai_api_key = os.getenv("OPENAI_API_KEY")
+    
+if os.getenv("VITE_GEMINI_API_KEY"):
+    settings.google_api_key = os.getenv("VITE_GEMINI_API_KEY")
+    
+if os.getenv("ANTHROPIC_API_KEY"):
+    settings.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+    
+if os.getenv("REDIS_URL"):
+    settings.redis_url = os.getenv("REDIS_URL")

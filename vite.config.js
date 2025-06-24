@@ -20,17 +20,32 @@ export default defineConfig(({ command, mode }) => {
         "/api": {
           target: "http://localhost:3000",
           changeOrigin: true,
+          secure: false,
           configure: (proxy, options) => {
             proxy.on('error', (err, req, res) => {
-              console.error('Proxy error:', err);
+              console.error('Proxy error details:', {
+                message: err.message,
+                code: err.code,
+                stack: err.stack,
+                method: req.method,
+                url: req.url,
+                headers: req.headers
+              });
               res.writeHead(500, {
                 'Content-Type': 'application/json',
               });
               res.end(JSON.stringify({
                 error: 'Proxy Error',
                 message: 'Failed to connect to consolidated backend server',
+                details: err.message,
                 timestamp: new Date().toISOString()
               }));
+            });
+            
+            proxy.on('proxyReq', (proxyReq, req, res) => {
+              console.log('Proxying request:', req.method, req.url);
+              // Log headers
+              console.log('Request headers:', req.headers);
             });
           }
         }

@@ -1,130 +1,194 @@
-# Haystack RAG Service
+# Canadian Forces Travel Instructions RAG Service
 
-A production-ready RAG (Retrieval-Augmented Generation) service built with Haystack 2.0 and FastAPI.
+A Retrieval-Augmented Generation (RAG) service built with FastAPI and LangChain for the Canadian Forces Travel Instructions Chatbot.
 
 ## Features
 
-- Document ingestion from files and URLs
-- Vector-based semantic search using OpenAI embeddings
-- Context-aware chat with conversation history
-- Server-Sent Events (SSE) streaming responses
-- RESTful API compatible with existing Node.js proxy
-- Support for PDF, TXT, HTML, Markdown, and JSON files
+- **Document Ingestion**: Support for web scraping, PDFs, text files, and markdown
+- **Smart Text Splitting**: Semantic-aware chunking that preserves document structure
+- **Hybrid Search**: Combines semantic similarity and keyword matching
+- **Multi-Provider LLM Support**: OpenAI, Google Gemini, and Anthropic
+- **Caching**: Redis-based caching for embeddings and query results
+- **Source Attribution**: Every response includes verifiable sources
+- **Canada.ca Integration**: Automated scraping of official travel instructions
 
-## Prerequisites
+## Architecture
+
+```
+rag-service/
+├── app/
+│   ├── api/              # FastAPI endpoints
+│   ├── core/             # Core configuration and services
+│   ├── models/           # Pydantic models
+│   ├── pipelines/        # Document processing pipelines
+│   └── services/         # Business logic services
+├── Dockerfile
+├── docker-compose.yml
+└── requirements.txt
+```
+
+## Setup
+
+### Prerequisites
 
 - Python 3.11+
-- OpenAI API key
-- (Optional) PostgreSQL 16+ with pgvector for persistent storage
+- Redis (optional, for caching)
+- API keys for at least one LLM provider:
+  - OpenAI API key
+  - Google Gemini API key
+  - Anthropic API key
 
-## Quick Start
+### Environment Variables
 
-1. **Setup the environment:**
-   ```bash
-   ./setup.sh
-   ```
+Create a `.env` file in the project root:
 
-2. **Configure environment variables:**
-   Edit `.env` file and add your OpenAI API key:
-   ```
-   OPENAI_API_KEY=your-openai-api-key-here
-   ```
+```bash
+# API Keys
+OPENAI_API_KEY=your_openai_key
+VITE_GEMINI_API_KEY=your_gemini_key
+ANTHROPIC_API_KEY=your_anthropic_key
 
-3. **Start the service:**
-   ```bash
-   ./run.sh
-   ```
+# Redis (optional)
+REDIS_URL=redis://localhost:6379
 
-The service will start on `http://localhost:8000`
+# RAG Configuration (optional)
+RAG_CHUNK_SIZE=1000
+RAG_CHUNK_OVERLAP=200
+RAG_RETRIEVAL_K=5
+```
 
-## API Endpoints
+### Running with Docker
 
-### Chat
-- `POST /chat` - Send a message and receive SSE streaming response
-  ```json
-  {
-    "message": "What is the capital of France?",
-    "model": "gpt-4o-mini",
-    "provider": "openai"
-  }
-  ```
+1. Build and start the services:
+```bash
+docker-compose up -d
+```
 
-### Document Ingestion
-- `POST /ingest/url` - Ingest content from a URL
-  ```json
-  {
-    "url": "https://example.com/document.html"
-  }
-  ```
+2. The RAG service will be available at `http://localhost:8000`
 
-- `POST /ingest/file` - Ingest a file (base64 encoded)
-  ```json
-  {
-    "filename": "document.pdf",
-    "content": "base64-encoded-content",
-    "content_type": "application/pdf"
-  }
-  ```
+### Running Locally
 
-### Source Management
-- `GET /sources` - List all ingested sources
-- `GET /sources/{id}` - Get details of a specific source
-- `DELETE /sources/{id}` - Delete a source and its documents
-
-### Health & Status
-- `GET /status` - Get service status and statistics
-- `GET /health` - Basic health check
-- `GET /ready` - Readiness probe
-
-## Configuration
-
-Edit `.env` file to configure:
-
-- `OPENAI_API_KEY` - Your OpenAI API key (required)
-- `VECTOR_STORE_TYPE` - Vector store type: memory, chroma, pgvector
-- `CHUNK_SIZE` - Document chunk size (default: 1000)
-- `CHUNK_OVERLAP` - Chunk overlap (default: 200)
-- `TOP_K_RETRIEVAL` - Number of documents to retrieve (default: 5)
-- `LLM_MODEL` - OpenAI model to use (default: gpt-4o-mini)
-
-## Development
-
-### Install in development mode:
+1. Create a virtual environment:
 ```bash
 python -m venv venv
-source venv/bin/activate
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+2. Install dependencies:
+```bash
 pip install -r requirements.txt
 ```
 
-### Run tests:
+3. Start Redis (optional):
+```bash
+docker run -d -p 6379:6379 redis:7-alpine
+```
+
+4. Run the service:
+```bash
+uvicorn app.main:app --reload --port 8000
+```
+
+## API Endpoints
+
+### Health Check
+- `GET /api/v1/health` - Service health status
+- `GET /api/v1/ready` - Readiness check
+
+### Chat
+- `POST /api/v1/chat` - Chat with RAG support
+- `POST /api/v1/followup` - Generate follow-up questions
+
+### Document Ingestion
+- `POST /api/v1/ingest` - Ingest document from URL or content
+- `POST /api/v1/ingest/file` - Upload and ingest file
+- `POST /api/v1/ingest/batch` - Ingest multiple documents
+- `POST /api/v1/ingest/canada-ca` - Scrape and ingest Canada.ca travel instructions
+- `DELETE /api/v1/documents/{document_id}` - Delete a document
+
+### Source Management
+- `GET /api/v1/sources` - List indexed sources
+- `GET /api/v1/sources/{document_id}` - Get specific source
+- `POST /api/v1/sources/search` - Search sources
+- `GET /api/v1/sources/stats` - Get indexing statistics
+
+## Usage Examples
+
+### Ingest Canada.ca Content
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ingest/canada-ca
+```
+
+### Chat with RAG
+
+```bash
+curl -X POST http://localhost:8000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What are the meal allowances for travel?",
+    "use_rag": true,
+    "provider": "openai"
+  }'
+```
+
+### Upload a PDF
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ingest/file \
+  -F "file=@policy.pdf" \
+  -F "document_type=pdf"
+```
+
+## Integration with Express.js Backend
+
+The RAG service is designed to be called from the main Express.js backend. Add these endpoints to your Express server:
+
+```javascript
+// Proxy to RAG service
+app.post('/api/v2/chat/rag', async (req, res) => {
+  const response = await fetch('http://localhost:8000/api/v1/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req.body)
+  });
+  const data = await response.json();
+  res.json(data);
+});
+```
+
+## Development
+
+### Running Tests
+
 ```bash
 pytest tests/
 ```
 
-### Format code:
+### Code Formatting
+
 ```bash
 black app/
-ruff check app/
+flake8 app/
 ```
 
-## Integration with Node.js
+## Monitoring
 
-This service is designed to work with the existing Node.js proxy. The Node.js server forwards requests from `/api/v2/chat` to this service at `http://localhost:8000/chat`.
+- Check service health: `http://localhost:8000/api/v1/health`
+- View API docs: `http://localhost:8000/api/v1/docs`
+- Monitor Redis: `redis-cli ping`
 
 ## Troubleshooting
 
-1. **Port already in use:**
-   Change the port in `.env` file or stop the conflicting service
+### Common Issues
 
-2. **OpenAI API errors:**
-   - Check your API key is valid
-   - Verify you have sufficient credits
-   - Check rate limits
+1. **Import errors**: Ensure all dependencies are installed
+2. **Vector store errors**: Check that ChromaDB directory has write permissions
+3. **API key errors**: Verify environment variables are set correctly
+4. **Memory issues**: Adjust chunk size and batch processing settings
 
-3. **Memory issues with large files:**
-   - Reduce `CHUNK_SIZE` in configuration
-   - Use persistent vector store (pgvector/chroma)
+### Logs
 
-## License
-
-MIT
+- Application logs are written to `./logs/` directory
+- Use structured JSON logging for production
+- Set `RAG_LOG_LEVEL=DEBUG` for verbose logging

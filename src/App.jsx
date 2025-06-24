@@ -1,5 +1,6 @@
 import React, { useState, useEffect, lazy, Suspense, startTransition } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import './index.css';
 
 // Lazy load components
@@ -92,6 +93,16 @@ function App() {
   return (
     <Router>
       <div className="w-screen min-h-screen overflow-x-hidden overflow-y-auto m-0 p-0 max-w-[100vw]">
+        <Toaster 
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: state.theme === 'dark' ? '#1f2937' : '#ffffff',
+              color: state.theme === 'dark' ? '#f3f4f6' : '#111827',
+              border: state.theme === 'dark' ? '1px solid #374151' : '1px solid #e5e7eb',
+            },
+          }}
+        />
         <Suspense fallback={<div className="min-h-screen bg-background" />}>
           <Routes>
             <Route path="/" element={

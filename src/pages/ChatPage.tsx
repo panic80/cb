@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Settings, Copy, RefreshCw, Sparkles, Command as CommandIcon, ArrowLeft, Mic, Paperclip, Hash, AtSign, HelpCircle, Zap, ChevronDown, Volume2, X } from 'lucide-react';
+import { Send, Settings, Copy, RefreshCw, Sparkles, Command as CommandIcon, ArrowLeft, Mic, Paperclip, Hash, AtSign, HelpCircle, Zap, ChevronDown, Volume2, X, Database } from 'lucide-react';
 import { motion, AnimatePresence, useMotionValue, useTransform, useSpring } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import { parseApiResponse } from '../utils/chatUtils';
 import { getModelDisplayName, DEFAULT_MODEL_ID } from '../constants/models';
 import { generateFollowUpQuestions } from '../services/followUpService';
 import { Message, Source, FollowUpQuestion } from '@/types/chat';
+import { SourcesDisplay } from '@/components/SourcesDisplay';
 
 /**
  * Format plain text response into markdown
@@ -70,6 +71,8 @@ const ChatPage: React.FC = () => {
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
   const [showHelpDialog, setShowHelpDialog] = useState(false);
+  const [useRAG, setUseRAG] = useState(true);
+  const [conversationId, setConversationId] = useState<string>('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -203,6 +206,14 @@ const ChatPage: React.FC = () => {
     if (!messageText) setInput(''); // Only clear input if not from follow-up question
     setIsLoading(true);
 
+    // Create a temporary message to hold streaming content
+    const messageId = (Date.now() + 1).toString();
+    let streamingContent = '';
+    let sources: Source[] = [];
+    let followUpQuestions: FollowUpQuestion[] = [];
+    let isFirstToken = true;
+    let retrievalStatus = '';
+
     try {
       // Get selected model from localStorage
       const selectedModel = localStorage.getItem('selectedLLMModel') || DEFAULT_MODEL_ID;
@@ -212,84 +223,198 @@ const ChatPage: React.FC = () => {
       const displayModel = getModelDisplayName(selectedModel);
       setCurrentModel(displayModel);
       
-      // Call the RAG service via Node.js proxy
-      const response = await fetch('/api/v2/chat', {
+      // Use SSE streaming endpoint
+      const endpoint = '/api/v2/chat/stream';
+      
+      // Create request body
+      const requestBody = JSON.stringify({
+        message: currentInput,
+        model: selectedModel,
+        provider: selectedProvider,
+        useRAG: useRAG,
+        conversationId: conversationId,
+        chatHistory: messages.slice(-10).map(msg => ({
+          role: msg.sender === 'user' ? 'user' : 'assistant',
+          content: msg.content
+        }))
+      });
+
+      // Use fetch with streaming response
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
         },
-        body: JSON.stringify({ 
-          message: currentInput,
-          model: selectedModel,
-          provider: selectedProvider
-        }),
+        body: requestBody,
       });
 
       if (!response.ok) {
+        const errorBody = await response.text();
+        console.error('Streaming service error response:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorBody
+        });
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      // Handle JSON response from RAG service
-      const data = await response.json();
-      
-      const aiResponse = data.response || '';
-      const sources = data.sources || [];
-      
-      const markdownPattern = /```|\n\s*#|\*\*|\n\s*[-*+]\s/;
-      const isMarkdown = markdownPattern.test(aiResponse);
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
 
-      // Generate follow-up questions before displaying the message
-      let followUpQuestions: FollowUpQuestion[] = [];
-      try {
-        const mappedSources = sources.map((source: any) => ({
-          text: source.content_preview || source.text || '',
-          reference: source.title || source.source || source.reference || ''
-        }));
-
-        followUpQuestions = await generateFollowUpQuestions({
-          userQuestion: currentInput,
-          aiResponse: aiResponse.trim(),
-          sources: mappedSources,
-          conversationHistory: messages.slice(-4).map(msg => ({
-            role: msg.sender === 'user' ? 'user' : 'assistant',
-            content: msg.content
-          }))
-        });
-      } catch (followUpError) {
-        console.error('Failed to generate follow-up questions:', followUpError);
-        // Continue without follow-up questions if generation fails
+      if (!reader) {
+        throw new Error('Response body is not readable');
       }
 
-      // Create the complete message with both answer and follow-up questions
-      const messageId = (Date.now() + 1).toString();
-      const followUpQuestionObjects: FollowUpQuestion[] = followUpQuestions.map((q, index) => ({
-        ...q,
-        id: q.id || `${messageId}-fu-${index}`,
-      }));
+      // Process SSE stream
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      const aiMessage: Message = {
-        id: messageId,
-        content: aiResponse.trim(),
-        sender: 'assistant',
-        timestamp: Date.now(),
-        isFormatted: isMarkdown,
-        sources: sources.map((source: any) => ({
-          text: source.content_preview || source.text || '',
-          reference: source.title || source.source || source.reference || ''
-        })),
-        followUpQuestions: followUpQuestionObjects.length > 0 ? followUpQuestionObjects : undefined
-      };
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
 
-      // Add the complete message with everything ready
-      setMessages(prev => [...prev, aiMessage]);
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') continue;
+
+            try {
+              const event = JSON.parse(data);
+
+              switch (event.type) {
+                case 'retrieval_start':
+                  retrievalStatus = 'Searching documents...';
+                  // Show retrieval status - REMOVED per user request
+                  // setMessages(prev => {
+                  //   const newMessages = [...prev];
+                  //   const tempMsg: Message = {
+                  //     id: messageId,
+                  //     content: retrievalStatus,
+                  //     sender: 'assistant',
+                  //     timestamp: Date.now(),
+                  //     isFormatted: false,
+                  //   };
+                  //   return [...newMessages, tempMsg];
+                  // });
+                  break;
+
+                case 'retrieval_complete':
+                  retrievalStatus = '';
+                  // Clear retrieval status - REMOVED per user request
+                  // setMessages(prev => prev.filter(msg => msg.id !== messageId));
+                  break;
+
+                case 'sources':
+                  sources = (event.sources || []).map((source: any) => ({
+                    text: source.content || source.text || '',
+                    reference: source.source || source.reference || source.title || ''
+                  }));
+                  break;
+
+                case 'generation_start':
+                  // Start showing the actual response
+                  break;
+
+                case 'token':
+                  if (event.content) {
+                    streamingContent += event.content;
+                    
+                    // Update message with streaming content
+                    setMessages(prev => {
+                      const newMessages = [...prev];
+                      const existingIndex = newMessages.findIndex(msg => msg.id === messageId);
+                      
+                      // Detect if content is markdown
+                      const markdownPattern = /```|\n\s*#|\*\*|\n\s*[-*+]\s/;
+                      const isMarkdown = markdownPattern.test(streamingContent);
+                      
+                      const streamingMessage: Message = {
+                        id: messageId,
+                        content: streamingContent,
+                        sender: 'assistant',
+                        timestamp: Date.now(),
+                        isFormatted: isMarkdown,
+                        sources: sources.length > 0 ? sources : undefined,
+                      };
+
+                      if (existingIndex >= 0) {
+                        newMessages[existingIndex] = streamingMessage;
+                      } else {
+                        newMessages.push(streamingMessage);
+                      }
+                      
+                      return newMessages;
+                    });
+                  }
+                  break;
+
+                case 'metadata':
+                  // Update conversation ID if provided
+                  if (event.conversation_id && !conversationId) {
+                    setConversationId(event.conversation_id);
+                  }
+                  
+                  // Handle follow-up questions from metadata
+                  if (event.follow_up_questions && Array.isArray(event.follow_up_questions)) {
+                    followUpQuestions = event.follow_up_questions.map((q: any, index: number) => ({
+                      id: `${messageId}-fu-${index}`,
+                      question: q.question || q,
+                      category: q.category || 'general',
+                      icon: q.icon,
+                    }));
+                  }
+                  break;
+
+                case 'complete':
+                  // Finalize the message with all metadata
+                  setMessages(prev => {
+                    const newMessages = [...prev];
+                    const existingIndex = newMessages.findIndex(msg => msg.id === messageId);
+                    
+                    const markdownPattern = /```|\n\s*#|\*\*|\n\s*[-*+]\s/;
+                    const isMarkdown = markdownPattern.test(streamingContent);
+                    
+                    const finalMessage: Message = {
+                      id: messageId,
+                      content: streamingContent.trim(),
+                      sender: 'assistant',
+                      timestamp: Date.now(),
+                      isFormatted: isMarkdown,
+                      sources: sources.length > 0 ? sources : undefined,
+                      followUpQuestions: followUpQuestions.length > 0 ? followUpQuestions : undefined,
+                    };
+
+                    if (existingIndex >= 0) {
+                      newMessages[existingIndex] = finalMessage;
+                    }
+                    
+                    return newMessages;
+                  });
+                  break;
+
+                case 'error':
+                  console.error('Streaming error event:', event);
+                  throw new Error(event.message || 'Streaming error occurred');
+              }
+            } catch (parseError) {
+              console.error('Error parsing SSE event:', parseError);
+            }
+          }
+        }
+      }
+
       setIsLoading(false);
     } catch (error) {
-      console.error('Error calling RAG service:', error);
+      console.error('Error with streaming chat:', error);
+      
+      // Remove any temporary messages
+      setMessages(prev => prev.filter(msg => msg.id !== messageId));
       
       // Add error message
       const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: `Sorry, I encountered an error while processing your request. Please make sure the RAG service is running and try again. Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        id: (Date.now() + 2).toString(),
+        content: `Sorry, I encountered an error while processing your request. Please try again. Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         sender: 'assistant',
         timestamp: Date.now(),
       };
@@ -764,41 +889,12 @@ const ChatPage: React.FC = () => {
                                   )}
                                 </div>
                             
-                            {/* Sources Section */}
-                            {message.sources && message.sources.length > 0 && (
-                              <div className="mt-4 pt-4 border-t border-[var(--border)] opacity-80">
-                                <div className="flex items-center gap-2 mb-3 text-sm font-medium text-[var(--text-secondary)]">
-                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-70">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                    <polyline points="14,2 14,8 20,8"/>
-                                    <line x1="16" y1="13" x2="8" y2="13"/>
-                                    <line x1="16" y1="17" x2="8" y2="17"/>
-                                    <polyline points="10,9 9,9 8,9"/>
-                                  </svg>
-                                  <span>Sources</span>
-                                </div>
-                                {message.sources.map((source, i) => (
-                                  <div key={i} className="mb-3 last:mb-0 p-3 rounded-lg bg-[var(--background-secondary)]/50 border-l-3 border-[var(--primary)]">
-                                    <div className="flex items-start gap-2 mb-2">
-                                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mt-1 opacity-60">
-                                        <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1-.008-1-1.031V20c0 1 0 1 1 1z"/>
-                                        <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/>
-                                      </svg>
-                                      <span className="text-sm italic text-[var(--text-secondary)] leading-relaxed">{source.text}</span>
-                                    </div>
-                                    {source.reference && (
-                                      <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]/80 mt-2 pt-2 border-t border-[var(--border)]/30">
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-60">
-                                          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.72"/>
-                                          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.72-1.72"/>
-                                        </svg>
-                                        <span className="font-medium">{source.reference}</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
+                            {/* Sources Section - Commented out per user request */}
+                            {/* {message.sources && message.sources.length > 0 && (
+                              <div className="mt-4 pt-4 border-t border-[var(--border)]">
+                                <SourcesDisplay sources={message.sources} />
                               </div>
-                            )}
+                            )} */}
                           </CardContent>
                         </Card>
                         
@@ -1048,49 +1144,6 @@ const ChatPage: React.FC = () => {
                       )}
                     </AnimatePresence>
                     
-                    <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8 rounded-xl"
-                            onClick={() => console.log('Attach file')}
-                          >
-                            <Paperclip size={16} />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Attach file</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </motion.div>
-                    
-                    <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className={cn(
-                              "h-8 w-8 rounded-xl",
-                              isRecording && "bg-red-500 text-white"
-                            )}
-                            onClick={handleVoiceInput}
-                          >
-                            <motion.div
-                              animate={isRecording ? { scale: [1, 1.2, 1] } : {}}
-                              transition={{ duration: 1, repeat: Infinity }}
-                            >
-                              <Mic size={16} />
-                            </motion.div>
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>{isRecording ? 'Stop recording' : 'Voice input'}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </motion.div>
                     
                     <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                       <Tooltip>
@@ -1139,7 +1192,7 @@ const ChatPage: React.FC = () => {
               >
                 <span>Policy Assistant can make mistakes. Please double-check responses.</span>
                 <span className="text-[var(--text-secondary)]/60">•</span>
-                <span className="text-[var(--text-secondary)]/70">Powered by Haystack & {currentModel}</span>
+                <span className="text-[var(--text-secondary)]/70">Powered by {currentModel}</span>
               </motion.div>
             </div>
           </motion.div>

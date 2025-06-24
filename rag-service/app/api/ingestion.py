@@ -1,221 +1,341 @@
-import logging
-import base64
-from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, BackgroundTasks
+"""Document ingestion API endpoints."""
 
-from app.models.schemas import (
-    URLIngestRequest, FileIngestRequest, IngestResponse, ErrorResponse
-)
-from app.pipelines.manager import PipelineManager
-from app.core.config import settings
-from app.services.metrics import metrics_service
-from app.services.ingestion_service import IngestionService, JobStatus
-from app.utils.file_utils import (
-    validate_file_type,
-    save_uploaded_file_streaming,
-    validate_file_comprehensive,
-    calculate_file_hash,
-    calculate_content_hash
-)
+from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Form, Query
+from typing import List, Optional
+import os
+import tempfile
+from datetime import datetime
+import uuid
 
-logger = logging.getLogger(__name__)
+from app.core.logging import get_logger
+from app.models.documents import (
+    DocumentIngestionRequest, DocumentIngestionResponse,
+    DocumentType
+)
+from app.pipelines.ingestion import IngestionPipeline
+from app.services.cache import CacheService
+from app.api.websocket import progress_tracker
+from app.api.progress import send_progress_update, close_progress_stream
+
+logger = get_logger(__name__)
+
 router = APIRouter()
 
-async def get_pipeline_manager() -> PipelineManager:
-    from app.main import pipeline_manager
-    return pipeline_manager
 
-# This should be a singleton managed by a dependency injection system in a real app
-_ingestion_service: Optional[IngestionService] = None
-
-def get_ingestion_service(pipeline_manager: PipelineManager = Depends(get_pipeline_manager)) -> IngestionService:
-    global _ingestion_service
-    if _ingestion_service is None:
-        _ingestion_service = IngestionService(pipeline_manager)
-    return _ingestion_service
-
-
-@router.post("/url", response_model=IngestResponse)
-async def ingest_url(
-    request: URLIngestRequest,
-    background_tasks: BackgroundTasks,
-    ingestion_service: IngestionService = Depends(get_ingestion_service)
-):
+@router.post("/database/purge")
+async def purge_database(request: Request) -> dict:
+    """Purge all documents from the vector database."""
     try:
-        logger.info(f"Received URL ingestion request: {request.url}")
-        job_id = ingestion_service.create_job("url", {"url": request.url})
-        background_tasks.add_task(ingestion_service.process_url_ingestion, job_id, request)
-        return IngestResponse(
-            id=job_id,
-            status="accepted",
-            message=f"URL ingestion started. Use job ID {job_id} to check status.",
-            document_count=0
-        )
+        # Get services from app state
+        app = request.app
+        vector_store_manager = app.state.vector_store_manager
+        cache_service = getattr(app.state, "cache_service", None)
+        
+        logger.info("Starting database purge...")
+        
+        # Clear the vector store collection
+        if hasattr(vector_store_manager.vector_store, 'delete_collection'):
+            # For Chroma
+            vector_store_manager.vector_store.delete_collection()
+            logger.info("Deleted vector store collection")
+            
+            # Recreate the collection
+            vector_store_manager.vector_store = vector_store_manager._create_vector_store()
+            logger.info("Recreated empty vector store collection")
+        elif hasattr(vector_store_manager.vector_store, 'delete'):
+            # For other vector stores that support delete without IDs
+            vector_store_manager.vector_store.delete(delete_all=True)
+            logger.info("Deleted all documents from vector store")
+        else:
+            raise HTTPException(
+                status_code=501, 
+                detail="Vector store does not support purge operation"
+            )
+        
+        # Clear cache if available
+        if cache_service:
+            await cache_service.clear_all()
+            logger.info("Cleared all cache entries")
+        
+        # Get updated stats
+        document_count = 0
+        if hasattr(vector_store_manager.vector_store, '_collection'):
+            # For Chroma
+            collection = vector_store_manager.vector_store._collection
+            document_count = collection.count() if collection else 0
+        
+        logger.info(f"Database purge completed. Document count: {document_count}")
+        
+        return {
+            "status": "success",
+            "message": "Database purged successfully",
+            "document_count": document_count,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
     except Exception as e:
-        logger.error(f"URL ingestion error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=ErrorResponse(error="ingestion_error", message=str(e)).model_dump())
+        logger.error(f"Database purge failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/file", response_model=IngestResponse)
+@router.post("/ingest", response_model=DocumentIngestionResponse)
+async def ingest_document(
+    request: Request,
+    ingestion_request: DocumentIngestionRequest
+) -> DocumentIngestionResponse:
+    """Ingest a document from URL or direct content."""
+    try:
+        # Get services from app state
+        app = request.app
+        vector_store = app.state.vector_store_manager
+        cache_service = getattr(app.state, "cache_service", None)
+        
+        # Create ingestion pipeline
+        pipeline = IngestionPipeline(vector_store, cache_service)
+        
+        # Create operation ID based on URL or content hash
+        if ingestion_request.url:
+            operation_id = f"url_{hash(ingestion_request.url)}"
+        else:
+            operation_id = f"ingest_{int(datetime.utcnow().timestamp())}"
+        
+        # Store URL mapping for progress tracking
+        if ingestion_request.url:
+            # Store URL -> operation_id mapping (in-memory for now)
+            if not hasattr(app.state, 'url_operations'):
+                app.state.url_operations = {}
+            app.state.url_operations[ingestion_request.url] = operation_id
+        
+        async def progress_callback(event_type: str, data: dict):
+            await send_progress_update(operation_id, event_type, data)
+        
+        # Ingest document with progress tracking
+        response = await pipeline.ingest_document(
+            ingestion_request,
+            progress_callback=progress_callback
+        )
+        
+        # Close progress stream
+        await close_progress_stream(operation_id)
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Document ingestion failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ingest/file", response_model=DocumentIngestionResponse)
 async def ingest_file(
-    request: FileIngestRequest,
-    background_tasks: BackgroundTasks,
-    pipeline_manager: PipelineManager = Depends(get_pipeline_manager),
-    ingestion_service: IngestionService = Depends(get_ingestion_service)
-):
-    """Ingest content from a file upload asynchronously.
+    request: Request,
+    file: UploadFile = File(...),
+    document_type: Optional[str] = Form(None),
+    force_refresh: bool = Form(False),
+    metadata: Optional[str] = Form("{}")
+) -> DocumentIngestionResponse:
+    """Ingest a document from file upload."""
+    try:
+        # Validate file type
+        file_extension = os.path.splitext(file.filename)[1].lower()
+        
+        # Determine document type
+        if document_type:
+            doc_type = DocumentType(document_type)
+        else:
+            # Auto-detect from extension
+            if file_extension == ".pdf":
+                doc_type = DocumentType.PDF
+            elif file_extension in [".txt", ".text"]:
+                doc_type = DocumentType.TEXT
+            elif file_extension in [".md", ".markdown"]:
+                doc_type = DocumentType.MARKDOWN
+            elif file_extension in [".docx", ".doc"]:
+                doc_type = DocumentType.DOCX
+            elif file_extension in [".xlsx", ".xls"]:
+                doc_type = DocumentType.XLSX
+            elif file_extension == ".csv":
+                doc_type = DocumentType.CSV
+            else:
+                raise ValueError(f"Unsupported file type: {file_extension}")
+                
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_file_path = tmp_file.name
+            
+        try:
+            # Parse metadata
+            import json
+            metadata_dict = json.loads(metadata)
+            metadata_dict["original_filename"] = file.filename
+            
+            # Create ingestion request
+            ingestion_request = DocumentIngestionRequest(
+                file_path=tmp_file_path,
+                type=doc_type,
+                metadata=metadata_dict,
+                force_refresh=force_refresh
+            )
+            
+            # Get services
+            app = request.app
+            vector_store = app.state.vector_store_manager
+            cache_service = getattr(app.state, "cache_service", None)
+            
+            # Create pipeline and ingest
+            pipeline = IngestionPipeline(vector_store, cache_service)
+            response = await pipeline.ingest_document(ingestion_request)
+            
+            return response
+            
+        finally:
+            # Clean up temp file
+            if os.path.exists(tmp_file_path):
+                os.unlink(tmp_file_path)
+                
+    except Exception as e:
+        logger.error(f"File ingestion failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ingest/batch", response_model=List[DocumentIngestionResponse])
+async def ingest_batch(
+    request: Request,
+    ingestion_requests: List[DocumentIngestionRequest],
+    max_concurrent: int = 5,
+    client_id: Optional[str] = Query(None, description="WebSocket client ID for progress tracking")
+) -> List[DocumentIngestionResponse]:
+    """Ingest multiple documents concurrently with optional progress tracking.
     
-    DEPRECATED: This base64 endpoint is deprecated due to memory inefficiency.
-    Use /file-upload (multipart/form-data) instead for better performance.
+    Args:
+        ingestion_requests: List of documents to ingest
+        max_concurrent: Maximum number of concurrent ingestions (default: 5, max: 10)
+        client_id: Optional WebSocket client ID for real-time progress updates
     """
     try:
-        logger.warning(f"DEPRECATED: Base64 file endpoint used for {request.filename}. Use /file-upload instead.")
-        logger.info(f"Received file ingestion request: {request.filename}")
+        # Limit max concurrent to prevent resource exhaustion
+        max_concurrent = min(max_concurrent, 10)
         
-        if not validate_file_type(request.content_type):
-            raise HTTPException(
-                status_code=400,
-                detail=ErrorResponse(
-                    error="invalid_file_type",
-                    message=f"Unsupported file type: {request.content_type}"
-                ).model_dump()
+        # Generate task ID for progress tracking
+        task_id = str(uuid.uuid4())
+        
+        # Start progress tracking if client ID provided
+        if client_id:
+            await progress_tracker.start_task(
+                task_id=task_id,
+                client_id=client_id,
+                total_items=len(ingestion_requests),
+                task_type="batch_ingestion"
             )
         
-        try:
-            file_content = base64.b64decode(request.content)
-        except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail=ErrorResponse(
-                    error="invalid_base64",
-                    message="Invalid base64 encoded content"
-                ).model_dump()
-            )
+        # Get services
+        app = request.app
+        vector_store = app.state.vector_store_manager
+        cache_service = getattr(app.state, "cache_service", None)
         
-        if len(file_content) > settings.MAX_FILE_SIZE_BYTES:
-            raise HTTPException(
-                status_code=400,
-                detail=ErrorResponse(
-                    error="file_too_large",
-                    message=f"File size exceeds maximum of {settings.MAX_FILE_SIZE_MB}MB"
-                ).model_dump()
-            )
+        # Create pipeline
+        pipeline = IngestionPipeline(vector_store, cache_service)
         
-        content_hash = calculate_content_hash(file_content)
-        logger.info(f"Content hash: {content_hash[:8]}...")
+        # Create progress callback
+        async def progress_callback(index: int, total: int, response: DocumentIngestionResponse):
+            if client_id:
+                message = f"Processed document {index + 1}/{total}"
+                if response.status == "error":
+                    await progress_tracker.update_progress(
+                        task_id=task_id,
+                        increment=1,
+                        message=message,
+                        error=response.message
+                    )
+                else:
+                    await progress_tracker.update_progress(
+                        task_id=task_id,
+                        increment=1,
+                        message=message
+                    )
         
-        existing_source_id = await pipeline_manager.document_store_service.check_duplicate_by_hash(content_hash)
-        if existing_source_id:
-            logger.info(f"Duplicate file detected, returning existing source: {existing_source_id}")
-            existing_source = await pipeline_manager.document_store_service.get_source(existing_source_id)
-            if existing_source:
-                return IngestResponse(
-                    id=existing_source_id,
-                    status="duplicate",
-                    message=f"File already exists as source {existing_source_id}. No ingestion needed.",
-                    document_count=existing_source.get("chunk_count", 0)
-                )
-        
-        job_id = ingestion_service.create_job("file", {"filename": request.filename})
-        background_tasks.add_task(ingestion_service.process_file_ingestion, job_id, request, content_hash)
-        
-        return IngestResponse(
-            id=job_id,
-            status="accepted",
-            message=f"File ingestion started. Use job ID {job_id} to check status.",
-            document_count=0
+        # Ingest all documents concurrently
+        responses = await pipeline.ingest_batch(
+            ingestion_requests,
+            max_concurrent=max_concurrent,
+            progress_callback=progress_callback if client_id else None
         )
         
-    except HTTPException:
-        raise
+        # Complete progress tracking
+        if client_id:
+            successful = sum(1 for r in responses if r.status == "success")
+            failed = sum(1 for r in responses if r.status == "error")
+            
+            await progress_tracker.complete_task(
+                task_id=task_id,
+                success=failed == 0,
+                message=f"Completed: {successful} successful, {failed} failed"
+            )
+        
+        return responses
+        
     except Exception as e:
-        logger.error(f"File ingestion error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=ErrorResponse(
-                error="ingestion_error",
-                message=f"Failed to start file ingestion: {str(e)}"
-            ).model_dump()
-        )
+        logger.error(f"Batch ingestion failed: {e}")
+        
+        # Mark task as failed
+        if client_id and 'task_id' in locals():
+            await progress_tracker.complete_task(
+                task_id=task_id,
+                success=False,
+                message=str(e)
+            )
+            
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/file-upload", response_model=IngestResponse)
-async def ingest_file_upload(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    pipeline_manager: PipelineManager = Depends(get_pipeline_manager),
-    ingestion_service: IngestionService = Depends(get_ingestion_service)
-):
+@router.post("/ingest/canada-ca", response_model=DocumentIngestionResponse)
+async def ingest_canada_ca(request: Request) -> DocumentIngestionResponse:
+    """Ingest all Canada.ca travel instructions."""
     try:
-        logger.info(f"Received file upload request: {file.filename}")
+        # Get services
+        app = request.app
+        vector_store = app.state.vector_store_manager
+        cache_service = getattr(app.state, "cache_service", None)
         
-        validation_result = await validate_file_comprehensive(
-            file, 
-            settings.MAX_FILE_SIZE_BYTES,
-            check_content=True
-        )
+        # Create pipeline
+        pipeline = IngestionPipeline(vector_store, cache_service)
         
-        if not validation_result["valid"]:
-            error_message = "; ".join(validation_result["errors"])
+        # Run Canada.ca ingestion
+        logger.info("Starting Canada.ca travel instructions ingestion")
+        response = await pipeline.ingest_canada_ca()
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Canada.ca ingestion failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/documents/{document_id}")
+async def delete_document(request: Request, document_id: str) -> dict:
+    """Delete a document and all its chunks."""
+    try:
+        # Get document store
+        app = request.app
+        document_store = app.state.document_store
+        
+        # Delete document
+        success = await document_store.delete_by_id(document_id)
+        
+        if success:
+            return {
+                "status": "success",
+                "message": f"Document {document_id} deleted successfully"
+            }
+        else:
             raise HTTPException(
-                status_code=400,
-                detail=ErrorResponse(
-                    error="file_validation_failed",
-                    message=error_message
-                ).model_dump()
+                status_code=404,
+                detail=f"Document {document_id} not found"
             )
-        
-        if validation_result["warnings"]:
-            for warning in validation_result["warnings"]:
-                logger.warning(f"File validation warning: {warning}")
-        
-        logger.info(f"File validation passed. Size: {validation_result['file_size']} bytes")
-        
-        file_hash = await calculate_file_hash(file)
-        logger.info(f"File hash: {file_hash[:8]}...")
-        
-        existing_source_id = await pipeline_manager.document_store_service.check_duplicate_by_hash(file_hash)
-        if existing_source_id:
-            logger.info(f"Duplicate file detected, returning existing source: {existing_source_id}")
-            existing_source = await pipeline_manager.document_store_service.get_source(existing_source_id)
-            if existing_source:
-                metrics_service.increment_counter("ingestion_jobs_duplicate", tags={"type": "file_upload"})
-                return IngestResponse(
-                    id=existing_source_id,
-                    status="duplicate",
-                    message=f"File already exists as source {existing_source_id}. No ingestion needed.",
-                    document_count=existing_source.get("chunk_count", 0)
-                )
-        
-        tmp_path = await save_uploaded_file_streaming(file)
-        job_id = ingestion_service.create_job("file_upload", {"filename": file.filename})
-        background_tasks.add_task(
-            ingestion_service.process_file_upload_ingestion, 
-            job_id, str(tmp_path), file.filename, file.content_type, file_hash
-        )
-        return IngestResponse(
-            id=job_id,
-            status="accepted",
-            message=f"File upload ingestion started. Use job ID {job_id} to check status.",
-            document_count=0
-        )
-        
+            
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"File upload ingestion error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=ErrorResponse(
-                error="ingestion_error",
-                message=f"Failed to start file upload ingestion: {str(e)}"
-            ).model_dump()
-        )
-
-
-@router.get("/jobs/{job_id}")
-async def get_job_status(job_id: str, ingestion_service: IngestionService = Depends(get_ingestion_service)):
-    job = ingestion_service.get_job_status(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=ErrorResponse(error="job_not_found", message=f"Job {job_id} not found").model_dump())
-    return job
+        logger.error(f"Document deletion failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

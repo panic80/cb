@@ -12,8 +12,20 @@ export interface FollowUpQuestion {
 }
 
 export interface Source {
+  id: string;
   text: string;
+  title?: string;
+  url?: string;
+  section?: string;
+  page?: number;
+  score?: number;
   reference?: string;
+  metadata?: {
+    type?: string;
+    last_modified?: string;
+    tags?: string[];
+    [key: string]: any;
+  };
 }
 
 export interface Message {

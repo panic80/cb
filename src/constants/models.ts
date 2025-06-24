@@ -39,4 +39,4 @@ export const getModelDisplayName = (modelId: string | null): string => {
 /**
  * Get the default model ID
  */
-export const DEFAULT_MODEL_ID = 'o4-mini';
+export const DEFAULT_MODEL_ID = 'gpt-4.1-mini';

@@ -4,12 +4,13 @@ import { fileURLToPath } from 'url';
 import { existsSync, statSync } from 'fs';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { loggingMiddleware } from './middleware/logging.js';
 import chatLogger from './services/logger.js';
 import CacheService from './services/cache.js';
 import dotenv from 'dotenv';
-import multer from 'multer';
 
 // Load environment variables based on NODE_ENV
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -26,11 +27,18 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Parse JSON request bodies with increased limit for large files
-app.use(express.json({ limit: '100mb' }));
+// Add request logging middleware (without consuming body)
+app.use((req, res, next) => {
+  console.log(`[Request Logger] ${req.method} ${req.originalUrl || req.url}`);
+  console.log('[Request Logger] Headers:', req.headers);
+  next();
+});
+
+// Parse JSON request bodies with increased limit
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({
   extended: true,
-  limit: '100mb',
+  limit: '10mb',
   parameterLimit: 10000
 }));
 
@@ -202,401 +210,977 @@ const processContent = (html) => {
   }
 };
 
-// API Key Validation
-const validateApiKey = (apiKey) => {
-  if (!apiKey) return false;
-  
-  // Google API keys typically start with 'AIza'
-  if (!apiKey.startsWith('AIza')) return false;
-  
-  // Must be at least 20 characters
-  return apiKey.length >= 20;
+// Initialize AI clients
+let geminiClient = null;
+let openaiClient = null;
+let anthropicClient = null;
+
+// Helper function to check if API key is valid (not a placeholder)
+const isValidApiKey = (key) => {
+  return key && 
+         !key.includes('your-') && 
+         !key.includes('-key-here') && 
+         key.length > 10;
 };
 
-// Request rate limiting middleware
+if (isValidApiKey(process.env.VITE_GEMINI_API_KEY)) {
+  geminiClient = new GoogleGenerativeAI(process.env.VITE_GEMINI_API_KEY);
+  console.log('Gemini API client initialized');
+} else {
+  console.log('Gemini API key not configured or invalid');
+}
+
+if (isValidApiKey(process.env.OPENAI_API_KEY)) {
+  openaiClient = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+  });
+  console.log('OpenAI API client initialized');
+} else {
+  console.log('OpenAI API key not configured or invalid');
+}
+
+if (isValidApiKey(process.env.ANTHROPIC_API_KEY)) {
+  anthropicClient = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY
+  });
+  console.log('Anthropic API client initialized');
+} else {
+  console.log('Anthropic API key not configured or invalid');
+}
+
+// Helper function to check if a model is an O-series reasoning model
+const isOSeriesModel = (model) => {
+  return model && (
+    model.startsWith('o3') || 
+    model.startsWith('o4') ||
+    model === 'o1' ||
+    model === 'o1-mini'
+  );
+};
+
+// Helper function to build OpenAI parameters based on model type
+const buildOpenAIParams = (model, messages) => {
+  const baseParams = {
+    model: model,
+    messages: messages
+  };
+  
+  const isOSeries = isOSeriesModel(model);
+  console.log(`Building OpenAI params for model: ${model}, isOSeries: ${isOSeries}`);
+  
+  if (isOSeries) {
+    // O-series models only support max_completion_tokens
+    return {
+      ...baseParams,
+      max_completion_tokens: 8192
+    };
+  } else {
+    // Standard models support traditional parameters
+    return {
+      ...baseParams,
+      temperature: 0.7
+    };
+  }
+};
+
+// Apply logging middleware conditionally (after static assets)
+if (config.loggingEnabled) {
+  app.use(loggingMiddleware);
+}
+
+// Custom rate limiting middleware (simpler than express-rate-limit)
 const rateLimiter = (req, res, next) => {
-  // Skip rate limiting if disabled
-  if (!config.rateLimitEnabled || !apiRequestCounts) {
+  if (!config.rateLimitEnabled) {
     return next();
   }
   
-  // Get client identifier (IP or a custom header if provided)
-  const clientId = req.headers['x-client-id'] || req.ip;
+  const clientIP = req.ip || req.socket.remoteAddress;
+  const requestCount = apiRequestCounts.get(clientIP) || 0;
   
-  // Get current count for this client
-  const currentCount = apiRequestCounts.get(clientId) || 0;
-  
-  // If over limit, return 429
-  if (currentCount >= config.rateLimitMax) {
-    return res.status(429).json({
-      error: 'Rate Limit Exceeded',
-      message: 'You have exceeded the API rate limit. Please try again later.',
-      retryAfter: Math.floor(config.rateLimitWindow / 1000) // Suggest retry after window duration
+  if (requestCount >= config.rateLimitMax) {
+    chatLogger.warn({
+      message: 'Rate limit exceeded',
+      clientIP,
+      path: req.path,
+      requestCount
+    });
+    return res.status(429).json({ 
+      error: 'Rate limit exceeded', 
+      retryAfter: Math.ceil(config.rateLimitWindow / 1000)
     });
   }
   
-  // Increment counter
-  apiRequestCounts.set(clientId, currentCount + 1);
-  
+  apiRequestCounts.set(clientIP, requestCount + 1);
   next();
 };
 
-// Enable CORS for production
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*'); // Allow all origins in production
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
-  
-  // Handle preflight OPTIONS requests
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  
-  next();
-});
-
-// Add logging middleware
-app.use(loggingMiddleware);
-
-// Add response logging for chat endpoints
+// Legacy chat middleware for backward compatibility
 app.use('/api/chat', async (req, res, next) => {
-  const originalJson = res.json;
-  res.json = function(data) {
-    if (req.body && req.body.message) {
-      chatLogger.logChat(req, req.body.message, data.response || '');
+  if (req.method === 'POST') {
+    console.log('Legacy /api/chat endpoint called, redirecting to /api/gemini/generateContent');
+    req.url = '/api/gemini/generateContent';
+    // Decode URL encoded body params if present
+    if (req.body) {
+      req.body = decodeUrlParams(req.body);
     }
-    return originalJson.apply(res, arguments);
-  };
+    
+    // Handle both old and new parameter names
+    if (req.body.query && !req.body.prompt) {
+      req.body.prompt = req.body.query;
+    }
+    
+    return app._router.handle(req, res, next);
+  }
   next();
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Global error handler:', err);
-  res.status(500).json({
-    error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'An unexpected error occurred'
-  });
-});
-
-// API routes - Direct implementation (no proxy)
-const isDevelopment = process.env.NODE_ENV === 'development';
-console.log(isDevelopment ? 'Development mode' : 'Production mode' + ': Using consolidated server architecture');
-
-// Proxy endpoint for Gemini API requests
+// Gemini chat endpoint (existing)
 app.post('/api/gemini/generateContent', rateLimiter, async (req, res) => {
   try {
-    console.log('Received Gemini API request');
+    const { prompt } = req.body;
     
-    // Get API key from environment variable
-    const apiKey = process.env.VITE_GEMINI_API_KEY;
-    console.log('[DEBUG] API Key Check:', {
-      present: !!apiKey,
-      length: apiKey?.length || 0,
-      startsWithAIza: apiKey?.startsWith('AIza') || false
-    });
-    
-    // Validate API key
-    if (!apiKey) {
-      console.error('[DEBUG] No API key found in environment variables');
-      return res.status(500).json({ error: 'API key not found in environment variables' });
-    }
-    
-    if (!validateApiKey(apiKey)) {
-      console.error('[DEBUG] Invalid API key format:', {
-        length: apiKey.length,
-        startsWithAIza: apiKey.startsWith('AIza')
+    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+      return res.status(400).json({ 
+        error: 'Bad Request', 
+        message: 'Prompt is required and must be a non-empty string' 
       });
-      return res.status(500).json({ error: 'Invalid API key format in environment variables' });
     }
-    
-    console.log('[DEBUG] API key validation passed');
 
-    const ai = new GoogleGenAI({
-      apiKey: apiKey,
-      apiVersion: "v1"
-    });
-    
-    // Extract model name from request or use default
-    const modelName = req.body.model || "gemini-2.5-flash-preview-05-20";
-    console.log(`Using model: ${modelName}`);
-    
-    // Handle different request formats
-    let contents;
-    if (req.body.contents) {
-      console.log('Using contents array format');
-      contents = req.body.contents;
-    } else if (req.body.prompt) {
-      console.log('Using prompt format');
-      contents = req.body.prompt;
-    } else {
-      return res.status(400).json({ error: 'Invalid request format. Missing contents or prompt.' });
+    if (!geminiClient) {
+      return res.status(500).json({ 
+        error: 'Configuration Error', 
+        message: 'Gemini API key is not configured.' 
+      });
     }
-    
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents: contents,
-    });
-    
-    console.log('Gemini API response received successfully');
 
-    const responseText = response.text;
+    const model = geminiClient.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
     
-    // Process question and answer
-    const promptLines = req.body.prompt.split('\n');
-    const responseLines = responseText.split('\n');
-    
-    const questionIndex = promptLines.findIndex(line => line.toLowerCase().startsWith('question:'));
-    const answerIndex = responseLines.findIndex(line => line.startsWith('Answer:'));
-    
-    const cleanedPrompt = questionIndex >= 0 ?
-      promptLines[questionIndex].replace(/^question:\s*/i, '').trim() :
-      promptLines[promptLines.length - 1].trim();
-    
-    const cleanedResponse = answerIndex >= 0 ?
-      responseLines[answerIndex].replace(/^Answer:\s*/, '').trim() :
-      responseText;
-    
-    console.log('Logging chat:', { // Debug log
-      timestamp: new Date().toISOString(),
-      question: cleanedPrompt,
-      answer: cleanedResponse
-    });
-    
-    chatLogger.logChat(null, { // Use logChat method with null for req
-      timestamp: new Date().toISOString(),
-      question: cleanedPrompt,
-      answer: cleanedResponse
-    });
-    console.log('Logged chat data'); // Debug log
-    
-    res.json({
-      candidates: [{
-        content: {
-          parts: [{
-            text: responseText
-          }]
-        }
-      }]
-    });
+    res.json({ response: text });
   } catch (error) {
     console.error('Gemini API error:', error);
-    
-    // Check for specific error types and return appropriate status codes
-    if (error.message.includes('Resource exhausted') || error.message.includes('quota')) {
-      return res.status(429).json({
-        error: 'Rate Limit Exceeded',
-        message: 'The AI service rate limit has been exceeded. Please try again later.',
-        retryAfter: 60 // Suggest retry after 1 minute
-      });
-    }
-    
-    if (error.message.includes('authentication') || error.message.includes('key')) {
-      return res.status(401).json({
-        error: 'Authentication Error',
-        message: 'Failed to authenticate with the AI service. Please check your API key.'
-      });
-    }
-    
-    if (error.message.includes('not found') || error.message.includes('model')) {
-      return res.status(404).json({
-        error: 'Model Not Found',
-        message: 'The requested AI model was not found or is not available.'
-      });
-    }
-    
-    // In production, don't expose internal error details
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.status(500).json({
-      error: 'Gemini API Error',
-      message: isProduction ? 'An error occurred while processing your request.' : error.message,
-      ...(isProduction ? {} : { stack: error.stack })
+    res.status(500).json({ 
+      error: 'Internal Server Error', 
+      message: error.message 
     });
   }
 });
 
-// Test endpoint for URL parsing validation (supports both GET and POST)
-app.all('/api/test-url-encoding', (req, res) => {
-  try {
-    // Process and properly decode URL-encoded body values
-    const decodedBody = {};
-    for (const [key, value] of Object.entries(req.body)) {
-      // Handle both string and array values
-      if (Array.isArray(value)) {
-        decodedBody[key] = value.map(item =>
-          typeof item === 'string' ? decodeURIComponent(item.replace(/\+/g, ' ')) : item
-        );
-      } else if (typeof value === 'string') {
-        decodedBody[key] = decodeURIComponent(value.replace(/\+/g, ' '));
-      } else {
-        decodedBody[key] = value;
-      }
-    }
+// RAG-enhanced chat endpoint
+app.post('/api/v2/chat/rag', rateLimiter, async (req, res, next) => {
+  const { message, model, provider, chatHistory, conversationId, useRAG = true } = req.body;
 
-    // Process and properly decode query parameters
-    const decodedQuery = {};
-    for (const [key, value] of Object.entries(req.query)) {
-      if (Array.isArray(value)) {
-        decodedQuery[key] = value.map(item =>
-          typeof item === 'string' ? decodeURIComponent(item) : item
-        );
-      } else if (typeof value === 'string') {
-        decodedQuery[key] = decodeURIComponent(value);
-      } else {
-        decodedQuery[key] = value;
-      }
-    }
-
-    // Return both raw and decoded components for comparison
-    res.json({
-      // Raw values as parsed by Express
-      body: req.body,
-      query: req.query,
-      // Properly decoded values
-      decodedBody,
-      decodedQuery,
-      // URL components
-      originalUrl: decodeURIComponent(req.originalUrl),
-      fullUrl: `${req.protocol}://${req.get('host')}${decodeURIComponent(req.originalUrl)}`
+  // Validate input
+  if (!message || typeof message !== 'string' || message.trim().length === 0) {
+    return res.status(400).json({ 
+      error: 'Bad Request', 
+      message: 'Message must be a non-empty string.' 
     });
+  }
+
+  try {
+    console.log('Processing RAG chat request', {
+      message: message?.substring(0, 50),
+      model,
+      provider,
+      hasHistory: !!chatHistory,
+      conversationId
+    });
+    
+    // Forward to RAG service
+    const ragServiceUrl = process.env.RAG_SERVICE_URL || 'http://localhost:8000';
+    const ragResponse = await axios.post(`${ragServiceUrl}/api/v1/chat`, {
+      message: message.trim(),
+      chat_history: chatHistory || [],
+      conversation_id: conversationId,
+      provider: provider || 'openai',
+      model: model,
+      use_rag: useRAG,
+      include_sources: true
+    }, {
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    // Return RAG response
+    res.json(ragResponse.data);
+
   } catch (error) {
-    res.status(500).json({ error: 'Decoding failed', message: error.message });
+    console.error('RAG chat error:', {
+      message: error.message,
+      code: error.code,
+      response: error.response?.data,
+      status: error.response?.status,
+      stack: error.stack
+    });
+    
+    if (error.response) {
+      // Forward error from RAG service
+      return res.status(error.response.status).json(error.response.data);
+    }
+    
+    // Fallback to regular chat if RAG service is unavailable
+    console.log('RAG service unavailable, falling back to regular chat');
+    
+    // Call the regular chat endpoint
+    const { message, model, provider } = req.body;
+    try {
+      let response = '';
+      
+      switch (provider) {
+        case 'google':
+          if (!geminiClient) {
+            return res.status(500).json({ 
+              error: 'Configuration Error', 
+              message: 'Google API key is not configured.' 
+            });
+          }
+          
+          const geminiModel = geminiClient.getGenerativeModel({ model: model });
+          const geminiResult = await geminiModel.generateContent(message.trim());
+          const geminiResponse = await geminiResult.response;
+          response = geminiResponse.text();
+          break;
+          
+        case 'openai':
+          if (!openaiClient) {
+            return res.status(500).json({ 
+              error: 'Configuration Error', 
+              message: 'OpenAI API key is not configured.' 
+            });
+          }
+          
+          const openaiParams = buildOpenAIParams(
+            model,
+            [{ role: 'user', content: message.trim() }]
+          );
+          
+          const openaiCompletion = await openaiClient.chat.completions.create(openaiParams);
+          
+          response = openaiCompletion.choices[0].message.content;
+          break;
+          
+        case 'anthropic':
+          if (!anthropicClient) {
+            return res.status(500).json({ 
+              error: 'Configuration Error', 
+              message: 'Anthropic API key is not configured.' 
+            });
+          }
+          
+          const anthropicMessage = await anthropicClient.messages.create({
+            model: model,
+            max_tokens: 4096,
+            messages: [{ role: 'user', content: message.trim() }],
+          });
+          
+          response = anthropicMessage.content[0].text;
+          break;
+          
+        default:
+          return res.status(400).json({ 
+            error: 'Bad Request', 
+            message: `Unsupported provider: ${provider}` 
+          });
+      }
+      
+      // Send response
+      res.json({
+        response: response,
+        sources: [], // No sources without RAG
+        conversation_id: null,
+        model: model
+      });
+    } catch (fallbackError) {
+      console.error('Fallback chat error:', fallbackError);
+      return res.status(500).json({ 
+        error: 'Internal Server Error', 
+        message: 'Both RAG and fallback chat services failed.' 
+      });
+    }
   }
 });
 
-// Proxy endpoint for travel instructions with comprehensive error handling and retry logic
-app.get('/api/travel-instructions', rateLimiter, async (req, res) => {
+// New unified chat endpoint that supports multiple providers
+app.post('/api/v2/chat', rateLimiter, async (req, res) => {
+  const { message, model, provider } = req.body;
+
+  // Validate input message
+  if (!message || typeof message !== 'string' || message.trim().length === 0) {
+    return res.status(400).json({ 
+      error: 'Bad Request', 
+      message: 'Message must be a non-empty string.' 
+    });
+  }
+
+  // Validate required parameters
+  if (!model) {
+    return res.status(400).json({ 
+      error: 'Bad Request', 
+      message: 'Model parameter is required.' 
+    });
+  }
+  
+  if (!provider) {
+    return res.status(400).json({ 
+      error: 'Bad Request', 
+      message: 'Provider parameter is required.' 
+    });
+  }
+
   try {
-    // Add request validation
-    const acceptsJson = req.headers.accept && req.headers.accept.includes('application/json');
-    if (!acceptsJson) {
-      console.warn('Client requested non-JSON response type:', req.headers.accept);
-      // Continue anyway but log the warning
-    }
+    console.log('Processing chat request with model:', model, 'provider:', provider);
     
-    // Check cache with detailed logging (skip if caching disabled)
-    const cachedData = cache ? await cache.get('travel-instructions') : null;
-    if (cachedData && cachedData.timestamp && (Date.now() - cachedData.timestamp < config.cacheTTL)) {
-      console.log('Serving fresh cached data, age:', Date.now() - cachedData.timestamp, 'ms');
-      
-      // Set appropriate headers
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      res.setHeader('ETag', cachedData.etag || `W/"${Date.now().toString(36)}"`);
-      if (cachedData.lastModified) {
-        res.setHeader('Last-Modified', cachedData.lastModified);
-      }
-      
-      return res.json({ 
-        content: cachedData.content, 
-        cached: true,
-        timestamp: new Date(cachedData.timestamp).toISOString()
-      });
-    }
-
-    console.log('Initiating fresh data fetch from source');
-    let response;
-    let retryCount = 0;
-    const startTime = Date.now();
-
-    // For debugging purposes
-    console.log(`Attempting to fetch travel instructions from Canada.ca website`);
-    console.log(`Current environment: ${process.env.NODE_ENV || 'not set'}`);
-    console.log(`Current retry count limits: ${config.maxRetries}`);
+    let response = '';
     
-    // Try to fetch from the official source first
-    while (retryCount < config.maxRetries) {
-      try {
-        console.log(`Fetch attempt ${retryCount + 1}/${config.maxRetries} to Canada.ca`);
-        response = await axios.get(
-          config.canadaCaUrl,
-          {
-            headers: {
-              'Accept-Encoding': 'gzip, deflate, br',
-              'User-Agent': 'Mozilla/5.0 (compatible; TravelInstructionsBot/1.0)',
-              'Accept-Language': 'en-US,en;q=0.9',
-              'Cache-Control': 'no-cache'
-            },
-            timeout: config.requestTimeout
-          }
-        );
-        
-        console.log(`Fetch succeeded after ${retryCount} retries, took ${Date.now() - startTime}ms`);
-        console.log(`Response status: ${response.status}, content length: ${response.data?.length || 'unknown'}`);
-        break;
-      } catch (error) {
-        retryCount++;
-        console.log(`Retry attempt ${retryCount} after error:`, error.message);
-        
-        // Log detailed error information for debugging
-        console.error(`Detailed fetch error:`, {
-          message: error.message,
-          code: error.code,
-          isAxiosError: error.isAxiosError,
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          data: error.response?.data?.substring?.(0, 200) || 'No data'
-        });
-        
-        if (retryCount === config.maxRetries) {
-          console.error(`All ${config.maxRetries} retry attempts failed`);
-          
-          console.error('All retry attempts to official Canada.ca source failed');
-          // Don't use default content, let the error propagate
-          throw new Error('Failed to retrieve travel instructions from Canada.ca after multiple attempts');
+    // Process based on provider
+    switch (provider) {
+      case 'google':
+        if (!geminiClient) {
+          return res.status(500).json({ 
+            error: 'Configuration Error', 
+            message: 'Google API key is not configured.' 
+          });
         }
         
-        // Exponential backoff with jitter
-        const delay = 1000 * Math.pow(2, retryCount - 1) * (0.5 + Math.random() * 0.5);
-        console.log(`Waiting ${Math.round(delay)}ms before retry ${retryCount}`);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        const geminiModel = geminiClient.getGenerativeModel({ model: model });
+        const geminiResult = await geminiModel.generateContent(message.trim());
+        const geminiResponse = await geminiResult.response;
+        response = geminiResponse.text();
+        break;
+        
+      case 'openai':
+        if (!openaiClient) {
+          return res.status(500).json({ 
+            error: 'Configuration Error', 
+            message: 'OpenAI API key is not configured.' 
+          });
+        }
+        
+        const openaiParams = buildOpenAIParams(
+          model,
+          [{ role: 'user', content: message.trim() }]
+        );
+        
+        const openaiCompletion = await openaiClient.chat.completions.create(openaiParams);
+        
+        response = openaiCompletion.choices[0].message.content;
+        break;
+        
+      case 'anthropic':
+        if (!anthropicClient) {
+          return res.status(500).json({ 
+            error: 'Configuration Error', 
+            message: 'Anthropic API key is not configured.' 
+          });
+        }
+        
+        const anthropicMessage = await anthropicClient.messages.create({
+          model: model,
+          max_tokens: 4096,
+          messages: [{ role: 'user', content: message.trim() }],
+        });
+        
+        response = anthropicMessage.content[0].text;
+        break;
+        
+      default:
+        return res.status(400).json({ 
+          error: 'Bad Request', 
+          message: `Unsupported provider: ${provider}` 
+        });
+    }
+    
+    // Send response
+    res.json({
+      response: response,
+      sources: [], // No sources without RAG
+      conversation_id: null,
+      model: model
+    });
+
+  } catch (error) {
+    console.error('Error processing chat request:', error);
+    
+    // Handle specific error cases
+    if (error.status === 429) {
+      return res.status(429).json({
+        error: 'Rate Limit Exceeded',
+        message: 'Too many requests to the AI provider. Please try again later.'
+      });
+    }
+    
+    if (error.status === 401) {
+      return res.status(500).json({
+        error: 'Configuration Error',
+        message: 'Invalid API key for the selected provider.'
+      });
+    }
+    
+    return res.status(500).json({ 
+      error: 'Internal Server Error', 
+      message: 'An error occurred while processing your request.' 
+    });
+  }
+});
+
+// Document ingestion endpoints
+// Proxy route for /api/rag/ingest to /api/v2/ingest
+app.post('/api/rag/ingest', rateLimiter, async (req, res) => {
+  const { url, content, type = 'web', metadata, forceRefresh = false } = req.body;
+
+  // Validate input
+  if (!url && !content) {
+    return res.status(400).json({ 
+      error: 'Bad Request', 
+      message: 'Either URL or content must be provided.' 
+    });
+  }
+
+  try {
+    // Forward to RAG service
+    const ragServiceUrl = process.env.RAG_SERVICE_URL || 'http://localhost:8000';
+    console.log('Forwarding ingestion request to RAG service:', {
+      url: url || 'N/A',
+      type,
+      hasContent: !!content,
+      forceRefresh
+    });
+    
+    const ragResponse = await axios.post(`${ragServiceUrl}/api/v1/ingest`, {
+      url,
+      content,
+      type,
+      metadata: metadata || {},
+      force_refresh: forceRefresh
+    }, {
+      timeout: 300000, // 5 minute timeout for complex documents
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    res.json(ragResponse.data);
+
+  } catch (error) {
+    console.error('Document ingestion error:', error);
+    
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+    
+    return res.status(500).json({ 
+      error: 'Internal Server Error', 
+      message: 'Failed to ingest document.' 
+    });
+  }
+});
+
+// SSE endpoint for ingestion progress - proxy to RAG service
+app.get('/api/rag/ingest/progress', async (req, res) => {
+  const { url } = req.query;
+  
+  if (!url) {
+    return res.status(400).json({ error: 'URL parameter required' });
+  }
+  
+  try {
+    const ragServiceUrl = process.env.RAG_SERVICE_URL || 'http://localhost:8000';
+    
+    // Proxy the SSE request to RAG service with URL parameter
+    const response = await axios.get(
+      `${ragServiceUrl}/api/v1/ingest/progress`,
+      {
+        params: { url },
+        responseType: 'stream',
+        headers: {
+          'Accept': 'text/event-stream',
+          'Cache-Control': 'no-cache'
+        }
+      }
+    );
+    
+    // Set SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'X-Accel-Buffering': 'no' // Disable Nginx buffering
+    });
+    
+    // Pipe the response
+    response.data.pipe(res);
+    
+    // Clean up on client disconnect
+    req.on('close', () => {
+      response.data.destroy();
+    });
+    
+  } catch (error) {
+    console.error('Progress streaming error:', error);
+    res.status(500).json({ error: 'Failed to connect to progress stream' });
+  }
+});
+
+app.post('/api/v2/ingest', rateLimiter, async (req, res) => {
+  const { url, content, type = 'web', metadata, forceRefresh = false } = req.body;
+
+  // Validate input
+  if (!url && !content) {
+    return res.status(400).json({ 
+      error: 'Bad Request', 
+      message: 'Either URL or content must be provided.' 
+    });
+  }
+
+  try {
+    // Forward to RAG service
+    const ragServiceUrl = process.env.RAG_SERVICE_URL || 'http://localhost:8000';
+    console.log('Forwarding ingestion request to RAG service:', {
+      url: url || 'N/A',
+      type,
+      hasContent: !!content,
+      forceRefresh
+    });
+    
+    const ragResponse = await axios.post(`${ragServiceUrl}/api/v1/ingest`, {
+      url,
+      content,
+      type,
+      metadata: metadata || {},
+      force_refresh: forceRefresh
+    }, {
+      timeout: 300000, // 5 minute timeout for complex documents
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    res.json(ragResponse.data);
+
+  } catch (error) {
+    console.error('Document ingestion error:', error);
+    
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+    
+    return res.status(500).json({ 
+      error: 'Internal Server Error', 
+      message: 'Failed to ingest document.' 
+    });
+  }
+});
+
+// Ingest Canada.ca travel instructions
+app.post('/api/v2/ingest/canada-ca', rateLimiter, async (req, res) => {
+  try {
+    const ragServiceUrl = process.env.RAG_SERVICE_URL || 'http://localhost:8000';
+    const ragResponse = await axios.post(`${ragServiceUrl}/api/v1/ingest/canada-ca`, {}, {
+      timeout: 300000, // 5 minute timeout for full scraping
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    res.json(ragResponse.data);
+
+  } catch (error) {
+    console.error('Canada.ca ingestion error:', error);
+    
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+    
+    return res.status(500).json({ 
+      error: 'Internal Server Error', 
+      message: 'Failed to ingest Canada.ca content.' 
+    });
+  }
+});
+
+// List indexed sources
+app.get('/api/v2/sources', rateLimiter, async (req, res) => {
+  try {
+    const ragServiceUrl = process.env.RAG_SERVICE_URL || 'http://localhost:8000';
+    const ragResponse = await axios.get(`${ragServiceUrl}/api/v1/sources`, {
+      params: req.query,
+      timeout: 10000
+    });
+
+    res.json(ragResponse.data);
+
+  } catch (error) {
+    console.error('Sources listing error:', error);
+    
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+    
+    return res.status(500).json({ 
+      error: 'Internal Server Error', 
+      message: 'Failed to list sources.' 
+    });
+  }
+});
+
+// Get source statistics
+app.get('/api/v2/sources/stats', rateLimiter, async (req, res) => {
+  try {
+    const ragServiceUrl = process.env.RAG_SERVICE_URL || 'http://localhost:8000';
+    const ragResponse = await axios.get(`${ragServiceUrl}/api/v1/sources/stats`, {
+      timeout: 10000
+    });
+
+    res.json(ragResponse.data);
+
+  } catch (error) {
+    console.error('Source stats error:', error);
+    
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+    
+    return res.status(500).json({ 
+      error: 'Internal Server Error', 
+      message: 'Failed to get source statistics.' 
+    });
+  }
+});
+
+// Get source count
+app.get('/api/v2/sources/count', rateLimiter, async (req, res) => {
+  try {
+    const ragServiceUrl = process.env.RAG_SERVICE_URL || 'http://localhost:8000';
+    const ragResponse = await axios.get(`${ragServiceUrl}/api/v1/sources/count`, {
+      timeout: 10000
+    });
+
+    res.json(ragResponse.data);
+
+  } catch (error) {
+    console.error('Source count error:', error);
+    
+    // Return a default response instead of erroring
+    res.json({ count: 0, status: 'error', message: 'Unable to get count' });
+  }
+});
+
+// Purge database endpoint
+app.post('/api/v2/database/purge', rateLimiter, async (req, res) => {
+  try {
+    console.log('Database purge requested');
+    
+    // Forward to RAG service
+    const ragServiceUrl = process.env.RAG_SERVICE_URL || 'http://localhost:8000';
+    const ragResponse = await axios.post(`${ragServiceUrl}/api/v1/database/purge`, {}, {
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    console.log('Database purge completed:', ragResponse.data);
+    res.json(ragResponse.data);
+
+  } catch (error) {
+    console.error('Database purge error:', error);
+    
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+    
+    return res.status(500).json({ 
+      error: 'Internal Server Error', 
+      message: 'Failed to purge database.' 
+    });
+  }
+});
+
+// SSE Streaming chat endpoint - proxy to RAG service
+app.post('/api/v2/chat/stream', rateLimiter, async (req, res) => {
+  const { message, model, provider, chatHistory, conversationId, useRAG = true } = req.body;
+
+  // Validate input
+  if (!message || typeof message !== 'string' || message.trim().length === 0) {
+    return res.status(400).json({
+      error: 'Bad Request',
+      message: 'Message must be a non-empty string.'
+    });
+  }
+
+  try {
+    console.log('Processing streaming chat request', {
+      message: message?.substring(0, 50),
+      model,
+      provider,
+      hasHistory: !!chatHistory,
+      conversationId
+    });
+    
+    // Forward to RAG service streaming endpoint
+    const ragServiceUrl = process.env.RAG_SERVICE_URL || 'http://localhost:8000';
+    const response = await axios.post(
+      `${ragServiceUrl}/api/v1/streaming_chat`,
+      {
+        message: message.trim(),
+        chat_history: chatHistory || [],
+        conversation_id: conversationId,
+        provider: provider || 'openai',
+        model: model,
+        use_rag: useRAG,
+        include_sources: true
+      },
+      {
+        responseType: 'stream',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream'
+        }
+      }
+    );
+
+    // Set SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'X-Accel-Buffering': 'no' // Disable Nginx buffering
+    });
+
+    // Pipe the response
+    response.data.pipe(res);
+
+    // Clean up on client disconnect
+    req.on('close', () => {
+      response.data.destroy();
+    });
+
+  } catch (error) {
+    console.error('Streaming chat error:', {
+      message: error.message,
+      code: error.code,
+      response: error.response?.data,
+      status: error.response?.status
+    });
+    
+    // For streaming errors, we need to send SSE formatted error
+    if (!res.headersSent) {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+      });
+    }
+    
+    const errorEvent = {
+      type: 'error',
+      error_type: error.response?.status === 401 ? 'auth_error' : 'unknown_error',
+      message: error.message || 'Streaming chat failed'
+    };
+    
+    res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
+    res.end();
+  }
+});
+
+// Follow-up questions endpoint (simplified without RAG context)
+app.post('/api/v2/followup', rateLimiter, async (req, res) => {
+  const { userQuestion, aiResponse, model, provider } = req.body;
+
+  // Validate input
+  if (!userQuestion || !aiResponse) {
+    return res.status(400).json({ 
+      error: 'Bad Request', 
+      message: 'userQuestion and aiResponse are required.' 
+    });
+  }
+
+  try {
+    const prompt = `Based on this conversation, generate 2-3 relevant follow-up questions:
+
+User Question: "${userQuestion}"
+AI Response: "${aiResponse}"
+
+Generate follow-up questions that would help the user learn more or get specific information. Return as a JSON array of questions.`;
+
+    let followUpQuestions = [];
+    
+    // Use the specified provider or fall back to Google
+    const actualProvider = provider || 'google';
+    const actualModel = model || 'gemini-2.0-flash';
+    
+    switch (actualProvider) {
+      case 'google':
+        if (geminiClient) {
+          const geminiModel = geminiClient.getGenerativeModel({ model: actualModel });
+          const result = await geminiModel.generateContent(prompt);
+          const response = await result.response;
+          const text = response.text();
+          
+          // Try to parse JSON from response
+          try {
+            const jsonMatch = text.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+              const questions = JSON.parse(jsonMatch[0]);
+              followUpQuestions = questions.map((q, idx) => ({
+                id: `followup-${Date.now()}-${idx}`,
+                question: q,
+                category: 'related',
+                confidence: 0.7
+              }));
+            }
+          } catch (e) {
+            console.error('Failed to parse follow-up questions:', e);
+          }
+        }
+        break;
+        
+      case 'openai':
+        if (openaiClient) {
+          const completion = await openaiClient.chat.completions.create({
+            model: actualModel,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.7,
+          });
+          
+          const text = completion.choices[0].message.content;
+          
+          // Try to parse JSON from response
+          try {
+            const jsonMatch = text.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+              const questions = JSON.parse(jsonMatch[0]);
+              followUpQuestions = questions.map((q, idx) => ({
+                id: `followup-${Date.now()}-${idx}`,
+                question: q,
+                category: 'related',
+                confidence: 0.7
+              }));
+            }
+          } catch (e) {
+            console.error('Failed to parse follow-up questions:', e);
+          }
+        }
+        break;
+    }
+    
+    // Fallback questions if generation failed
+    if (followUpQuestions.length === 0) {
+      followUpQuestions = [
+        {
+          id: `followup-${Date.now()}-0`,
+          question: 'Can you provide more specific examples?',
+          category: 'clarification',
+          confidence: 0.5
+        },
+        {
+          id: `followup-${Date.now()}-1`,
+          question: 'What are the next steps I should take?',
+          category: 'practical',
+          confidence: 0.5
+        }
+      ];
+    }
+
+    res.json({ followUpQuestions });
+
+  } catch (error) {
+    console.error('Error generating follow-up questions:', error);
+    
+    // Return empty array on error
+    res.json({ followUpQuestions: [] });
+  }
+});
+
+// Travel instructions proxy endpoint with caching and error handling
+app.get('/api/travel-instructions', rateLimiter, async (req, res) => {
+  try {
+    const startTime = Date.now();
+    const ifNoneMatch = req.headers['if-none-match'];
+    
+    // Check cache first (if caching enabled)
+    if (cache) {
+      const cachedData = await cache.get('travel-instructions');
+      if (cachedData && cachedData.content && cachedData.etag) {
+        console.log('Cache hit for travel instructions, age:', Date.now() - cachedData.timestamp, 'ms');
+        
+        // Handle conditional requests
+        if (ifNoneMatch && ifNoneMatch === cachedData.etag) {
+          return res.status(304).send(); // Not Modified
+        }
+        
+        // Set cache headers
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.setHeader('ETag', cachedData.etag);
+        if (cachedData.lastModified) {
+          res.setHeader('Last-Modified', cachedData.lastModified);
+        }
+        
+        return res.json({ 
+          content: cachedData.content, 
+          fresh: false,
+          cacheAge: Date.now() - cachedData.timestamp,
+          timestamp: new Date(cachedData.timestamp).toISOString()
+        });
       }
     }
 
-    // Validate response
-    if (!response || !response.data) {
-      throw new Error('Empty response received from source');
+    // Fetch from canada.ca with retry mechanism
+    console.log('Fetching fresh travel instructions from:', config.canadaCaUrl);
+    let response;
+    let lastError;
+    
+    for (let attempt = 1; attempt <= config.maxRetries; attempt++) {
+      try {
+        response = await axios.get(config.canadaCaUrl, {
+          timeout: config.requestTimeout,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; CFTravelBot/1.0)',
+            'Accept': 'text/html,application/xhtml+xml',
+            'Accept-Language': 'en-CA,en;q=0.9',
+            'Cache-Control': 'no-cache'
+          },
+          validateStatus: function (status) {
+            return status < 500; // Accept any status < 500
+          }
+        });
+        
+        // If successful, break out of retry loop
+        if (response.status === 200) {
+          break;
+        }
+        
+        // If 404 or other client error, don't retry
+        if (response.status >= 400 && response.status < 500) {
+          throw new Error(`Canada.ca returned status ${response.status}`);
+        }
+        
+      } catch (error) {
+        lastError = error;
+        console.log(`Attempt ${attempt} failed:`, error.message);
+        if (attempt < config.maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, config.retryDelay * attempt));
+        }
+      }
     }
     
-    console.log('Processing HTML content...');
-    const dataLength = response?.data?.length || 0;
-    console.log(`Raw response data length: ${dataLength} bytes`);
-    
-    // Take a sample of the HTML for debugging
-    if (typeof response.data === 'string') {
-      const sample = response.data.substring(0, 300);
-      console.log(`HTML sample: ${sample.replace(/\n/g, '\\n').replace(/\r/g, '\\r')}`);
+    // If all retries failed, throw the last error
+    if (!response || response.status !== 200) {
+      throw lastError || new Error('Failed to fetch travel instructions after all retries');
     }
-    
-    const content = processContent(response.data);
-    console.log(`Processed content length: ${content?.length || 0} bytes`);
-    
-    // Log the first 500 characters of processed content for debugging
-    if (content) {
-      const contentSample = content.substring(0, 500);
-      console.log(`Processed content sample: ${contentSample.replace(/\n/g, '\\n')}`);
-    }
-    
-    if (!content || content.trim().length < 100) {
-      console.error('Processed content too short or empty:', content);
-      
-      // Create a more detailed failure record
-      const contentInfo = {
-        contentLength: content?.length || 0,
-        contentEmpty: !content,
-        firstChars: content?.substring(0, 50) || 'N/A',
-        responseStatus: response?.status,
-        responseType: response?.headers?.['content-type'] || 'unknown'
-      };
-      console.error('Content validation failed with details:', contentInfo);
-      
-      // Don't use default content, throw an error
-      throw new Error('Processed content validation failed - insufficient content length');
-    }
-    
-    console.log('Content processed successfully, length:', content.length);
 
-    // Generate unique ETag
-    const etag = response.headers.etag || `W/"${Date.now().toString(36)}"`;
+    // Process HTML content
+    const content = processContent(response.data);
+    
+    // Generate ETag from content
+    const etag = `"${Buffer.from(content).toString('base64').substring(0, 27)}"`;
     
     // Update cache with comprehensive metadata (if caching enabled)
     if (cache) {
@@ -712,6 +1296,18 @@ app.get('/health', async (req, res) => {
   const activeClients = apiRequestCounts ? apiRequestCounts.size : 0;
   const clientsAtLimit = apiRequestCounts ? Array.from(apiRequestCounts.entries())
     .filter(([_, count]) => count >= config.rateLimitMax).length : 0;
+    
+  // Check RAG service health
+  let ragHealth = { status: 'unknown' };
+  if (process.env.RAG_SERVICE_URL || req.query.checkRag === 'true') {
+    try {
+      const ragServiceUrl = process.env.RAG_SERVICE_URL || 'http://localhost:8000';
+      const ragResponse = await axios.get(`${ragServiceUrl}/api/v1/health`, { timeout: 5000 });
+      ragHealth = ragResponse.data;
+    } catch (error) {
+      ragHealth = { status: 'unhealthy', error: error.message };
+    }
+  }
   
   // For detailed health checks, add API connectivity test
   const isAdmin = req.query.admin === 'true';
@@ -752,6 +1348,7 @@ app.get('/health', async (req, res) => {
       window: `${config.rateLimitWindow / 1000}s`
     },
     environment: process.env.NODE_ENV || 'production',
+    ragService: ragHealth,
     timestamp: new Date().toISOString()
   };
   
@@ -779,8 +1376,12 @@ app.get('/api/config', (req, res) => {
       rateLimit: config.rateLimitMax
     },
     models: {
-      default: 'gemini-2.0-flash',
-      available: ['gemini-2.0-flash', 'gemini-2.0-flash-lite']
+      default: 'gpt-4.1-mini',
+      providers: {
+        google: !!geminiClient,
+        openai: !!openaiClient,
+        anthropic: !!anthropicClient
+      }
     },
     caching: {
       enabled: config.cacheEnabled,
@@ -791,7 +1392,19 @@ app.get('/api/config', (req, res) => {
       base: '/api',
       travelInstructions: '/api/travel-instructions',
       gemini: '/api/gemini/generateContent',
+      chat: '/api/v2/chat',
+      chatRag: '/api/v2/chat/rag',
+      followup: '/api/v2/followup',
+      ingest: '/api/v2/ingest',
+      ingestCanada: '/api/v2/ingest/canada-ca',
+      sources: '/api/v2/sources',
+      sourcesStats: '/api/v2/sources/stats',
       health: '/health'
+    },
+    // RAG service info
+    rag: {
+      enabled: !!process.env.RAG_SERVICE_URL || true,
+      serviceUrl: process.env.RAG_SERVICE_URL || 'http://localhost:8000'
     },
     // Client-side configuration
     client: {
@@ -859,763 +1472,87 @@ app.post('/api/clear-cache', (req, res) => {
   });
 });
 
-// Helper function to validate that follow-up questions are grounded in source content
-const validateSourceGrounding = async (questions, sourceContent) => {
-  if (!sourceContent || sourceContent.trim().length === 0) {
-    // If no source content, only keep high-confidence questions
-    return questions.filter(q => q.confidence >= 0.8);
-  }
+// Core middleware to handle serving the app
+app.use(express.static('public_html'));
 
-  const validatedQuestions = [];
-  
-  for (const question of questions) {
-    try {
-      // Simple validation: check if key terms from the question appear in source content
-      const questionWords = question.question.toLowerCase()
-        .replace(/[?.,!]/g, '')
-        .split(' ')
-        .filter(word => word.length > 3); // Filter out short words
-      
-      const sourceWords = sourceContent.toLowerCase();
-      const matchingWords = questionWords.filter(word => sourceWords.includes(word));
-      
-      // Calculate grounding score based on word overlap
-      const groundingScore = matchingWords.length / Math.max(questionWords.length, 1);
-      
-      // Only include questions with reasonable grounding (>30% word overlap or high confidence with grounding info)
-      if (groundingScore > 0.3 || (question.confidence > 0.8 && question.sourceGrounding)) {
-        validatedQuestions.push({
-          ...question,
-          groundingScore: groundingScore
-        });
-      } else {
-        console.log(`Filtered out question due to poor grounding: "${question.question}" (score: ${groundingScore})`);
-      }
-    } catch (error) {
-      console.error('Error validating question grounding:', error);
-      // If validation fails, keep the question but mark it as uncertain
-      validatedQuestions.push({
-        ...question,
-        confidence: Math.min(question.confidence, 0.6),
-        groundingScore: 0
-      });
-    }
-  }
-  
-  return validatedQuestions;
-};
-
-// Follow-up Questions endpoint - generates contextual follow-up questions
-app.post('/api/v2/followup', rateLimiter, async (req, res) => {
-  const { userQuestion, aiResponse, sources, conversationHistory } = req.body;
-
-  // Validate input
-  if (!userQuestion || !aiResponse) {
-    return res.status(400).json({ 
-      error: 'Bad Request', 
-      message: 'userQuestion and aiResponse are required.' 
-    });
-  }
-
-  try {
-    console.log('Generating follow-up questions for:', userQuestion.substring(0, 50) + '...');
-
-    // Create a specialized prompt for follow-up question generation with strict source grounding
-    const MAX_SOURCE_CONTENT_LENGTH = 2000; // Limit source content to prevent token overflow
-    
-    const sourceContentSnippets = sources && sources.length > 0 
-      ? sources.map(s => {
-          const content = s.text || '';
-          const truncatedContent = content.length > MAX_SOURCE_CONTENT_LENGTH 
-            ? content.substring(0, MAX_SOURCE_CONTENT_LENGTH) + '...'
-            : content;
-          return `Source: ${s.reference || 'Document'}\nContent: ${truncatedContent}`;
-        }).join('\n\n')
-      : '';
-
-    const followUpPrompt = `You are a helpful assistant specialized in generating contextual follow-up questions that are STRICTLY GROUNDED in the provided source material. You must ONLY generate questions that can be answered using the exact content provided below.
-
-CRITICAL CONSTRAINTS:
-- ONLY create questions that can be answered from the provided source content
-- DO NOT generate questions about topics not covered in the sources
-- DO NOT create questions that would require external knowledge or speculation
-- Each question must be answerable using specific text from the provided sources
-
-USER'S ORIGINAL QUESTION: "${userQuestion}"
-
-AI RESPONSE PROVIDED: "${aiResponse}"
-
-AVAILABLE SOURCE CONTENT (this is the ONLY information you may reference):
-${sourceContentSnippets || 'No source content available. Generate only general clarification questions about the provided response.'}
-
-${conversationHistory && conversationHistory.length > 0 ? `CONVERSATION CONTEXT:\n${conversationHistory.slice(-4).map(h => `${h.role}: ${h.content.substring(0, 100)}...`).join('\n')}` : ''}
-
-TASK: Generate 2-3 follow-up questions that are:
-1. ANSWERABLE using only the provided source content above
-2. Would help the user explore the available information more deeply
-3. Lead to specific, factual responses (not speculation)
-
-QUESTION TYPES TO PRIORITIZE:
-- Clarification about specific details mentioned in the sources
-- Questions about related topics explicitly covered in the provided content
-- Practical applications mentioned in the source material
-- Specific requirements, procedures, or examples found in the sources
-
-AVOID:
-- Questions about topics not in the source content
-- Hypothetical scenarios not covered by sources
-- Questions requiring external knowledge
-- Generic questions not grounded in the specific content
-
-Return ONLY this JSON format:
-{
-  "questions": [
-    {
-      "question": "Specific question answerable from source content",
-      "category": "clarification|related|practical|explore",
-      "confidence": 0.9,
-      "sourceGrounding": "Brief indication of which source content supports this question"
-    }
-  ]
-}
-
-If the source content is insufficient to generate meaningful grounded questions, return an empty questions array.`;
-
-    // Use the same model and provider as the main conversation
-    const model = req.body.model || 'gpt-4';
-    const provider = req.body.provider || 'openai';
-
-    // Call the RAG service for question generation
-    const ragServiceUrl = process.env.RAG_SERVICE_URL + '/chat';
-    
-    const response = await axios.post(ragServiceUrl, {
-      message: followUpPrompt,
-      model: model,
-      provider: provider,
-      stream: false
-    }, {
-      timeout: 15000, // 15 second timeout for follow-up generation
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    const followUpText = response.data.response || '';
-    
-    // Parse the response to extract follow-up questions
-    let followUpQuestions = [];
-    try {
-      // Try to extract JSON from the response
-      const jsonMatch = followUpText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        const questions = parsed.questions || [];
-        
-        followUpQuestions = questions.map((q, index) => ({
-          id: `followup-${Date.now()}-${index}`,
-          question: q.question || '',
-          category: q.category || 'related',
-          confidence: q.confidence || 0.7,
-          sourceGrounding: q.sourceGrounding || null
-        })).filter(q => q.question.trim().length > 0);
-      }
-    } catch (parseError) {
-      console.log('Failed to parse JSON, trying text extraction');
-      // Fallback: extract questions from plain text
-      const lines = followUpText.split('\n');
-      lines.forEach((line, index) => {
-        const trimmed = line.trim();
-        if (trimmed.endsWith('?') && trimmed.length > 10) {
-          const cleanQuestion = trimmed
-            .replace(/^\d+\.\s*/, '')
-            .replace(/^[-*]\s*/, '')
-            .replace(/^Q:\s*/i, '')
-            .trim();
-          
-          if (cleanQuestion.length > 10) {
-            // Determine category based on question content
-            let category = 'related';
-            const questionLower = cleanQuestion.toLowerCase();
-            
-            if (questionLower.includes('how') || questionLower.includes('what steps') || questionLower.includes('process')) {
-              category = 'practical';
-            } else if (questionLower.includes('what') || questionLower.includes('explain') || questionLower.includes('clarify')) {
-              category = 'clarification';
-            } else if (questionLower.includes('more') || questionLower.includes('additional') || questionLower.includes('other')) {
-              category = 'explore';
-            }
-            
-            followUpQuestions.push({
-              id: `followup-text-${Date.now()}-${index}`,
-              question: cleanQuestion,
-              category: category,
-              confidence: 0.6,
-              sourceGrounding: 'Extracted from AI response'
-            });
-          }
-        }
-      });
-    }
-
-    // Validate questions to ensure they are source-grounded
-    const validatedQuestions = await validateSourceGrounding(followUpQuestions, sourceContentSnippets);
-    
-    // Limit to 3 questions and send response
-    const finalQuestions = validatedQuestions.slice(0, 3);
-    
-    console.log(`Generated ${followUpQuestions.length} questions, validated ${finalQuestions.length} as source-grounded`);
-
-    res.json({
-      followUpQuestions: finalQuestions
-    });
-
-  } catch (error) {
-    console.error('Error generating follow-up questions:', error.message);
-    
-    // Return empty array on error rather than failing the whole request
-    res.json({
-      followUpQuestions: []
-    });
-  }
-});
-
-// RAG Chat endpoint - proxies to Python RAG service
-app.post('/api/v2/chat', rateLimiter, async (req, res) => {
-  const { message, model, provider } = req.body;
-
-  // Validate input message
-  if (!message || typeof message !== 'string' || message.trim().length === 0) {
-    return res.status(400).json({ 
-      error: 'Bad Request', 
-      message: 'Message must be a non-empty string.' 
-    });
-  }
-
-  try {
-    console.log('Proxying chat request to RAG service with model:', model, 'provider:', provider);
-    // Validate required parameters
-    if (!model) {
-      return res.status(400).json({ 
-        error: 'Bad Request', 
-        message: 'Model parameter is required.' 
-      });
-    }
-    
-    if (!provider) {
-      return res.status(400).json({ 
-        error: 'Bad Request', 
-        message: 'Provider parameter is required.' 
-      });
-    }
-    
-    console.log('Model:', model, 'Provider:', provider);
-    
-    // RAG Service URL (Python FastAPI service)
-    if (!process.env.RAG_SERVICE_URL) {
-      return res.status(500).json({ 
-        error: 'Configuration Error', 
-        message: 'RAG_SERVICE_URL environment variable is not configured.' 
-      });
-    }
-    
-    const ragServiceUrl = process.env.RAG_SERVICE_URL + '/chat';
-    
-    // Forward the request to the Python RAG service with stream: false for JSON response
-    const response = await axios.post(ragServiceUrl, {
-      message: message.trim(),
-      model: model,
-      provider: provider,
-      stream: false
-    }, {
-      timeout: 30000, // 30 second timeout for RAG responses
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    console.log('RAG service responded with data');
-
-    // Get the JSON response
-    const ragResponse = response.data;
-    
-    // Send JSON response directly
-    res.json({
-      response: ragResponse.response || '',
-      sources: ragResponse.sources || [],
-      conversation_id: ragResponse.conversation_id || null,
-      model: ragResponse.model || model
-    });
-
-  } catch (error) {
-    console.error('Error proxying chat request to RAG service:', error.message);
-    
-    // Handle specific error cases
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({ 
-        error: 'Service Unavailable', 
-        message: 'The RAG service is not running. Please ensure the Python service is started at http://localhost:8000' 
-      });
-    }
-    
-    if (error.code === 'ETIMEDOUT') {
-      return res.status(504).json({
-        error: 'Gateway Timeout',
-        message: 'The RAG service took too long to respond. Please try again.'
-      });
-    }
-    
-    if (error.response?.status === 400) {
-      return res.status(400).json({
-        error: 'Bad Request',
-        message: 'Invalid request sent to RAG service.'
-      });
-    }
-    
-    if (error.response?.status === 500) {
-      return res.status(502).json({
-        error: 'Bad Gateway',
-        message: 'The RAG service encountered an internal error.'
-      });
-    }
-    
-    // Generic error response
-    res.status(503).json({ 
-      error: 'Service Unavailable', 
-      message: 'The AI service is currently unavailable. Please try again later.',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-// Serve static files for React app - with fallback paths
-const possibleDistPaths = [
-  path.join(__dirname, '../dist'),
-  path.join(process.cwd(), 'dist'),
-  path.join(__dirname, 'dist')
+// Use absolute paths relative to server directory
+const possiblePaths = [
+  path.join(__dirname, '..', 'public_html'),
+  path.join(__dirname, '..', 'dist'),
+  path.join(process.cwd(), 'public_html'),
+  path.join(process.cwd(), 'dist')
 ];
 
+// Find the first existing directory
 let distPath = null;
-
-for (const testPath of possibleDistPaths) {
-  try {
-    console.log(`Checking dist path: ${testPath}`);
-    const exists = existsSync(testPath);
-    console.log(`  Path exists: ${exists}`);
-    if (exists) {
-      // Double-check it's actually a directory
+for (const testPath of possiblePaths) {
+  if (existsSync(testPath)) {
+    try {
       const stats = statSync(testPath);
       if (stats.isDirectory()) {
         distPath = testPath;
-        console.log(`Found dist directory at: ${distPath}`);
+        console.log(`Found static assets at: ${distPath}`);
         break;
-      } else {
-        console.log(`  Path exists but is not a directory`);
       }
+    } catch (err) {
+      console.error(`Error checking path ${testPath}:`, err.message);
     }
-  } catch (err) {
-    console.log(`  Error checking path: ${err.message}`);
   }
 }
 
-if (distPath) {
-  // Serve static files with appropriate cache headers
-  app.use(express.static(distPath, {
-    maxAge: process.env.NODE_ENV === 'production' ? '1d' : '0',
-    etag: true,
-    lastModified: true,
-    setHeaders: (res, path) => {
-      // Cache JS/CSS files for longer, but allow revalidation
-      if (path.endsWith('.js') || path.endsWith('.css')) {
-        res.setHeader('Cache-Control', 'public, max-age=86400, must-revalidate');
+// Improved static file serving for landing page
+const possiblePublicPaths = [
+  path.join(__dirname, '..', 'public_html', 'landing'),
+  path.join(__dirname, '..', 'dist', 'landing'),
+  path.join(process.cwd(), 'public_html', 'landing'),
+  path.join(process.cwd(), 'dist', 'landing'),
+  // Additional fallback paths
+  path.join(__dirname, 'public_html', 'landing'),
+  path.join(__dirname, 'dist', 'landing')
+];
+
+let landingPath = null;
+for (const testPath of possiblePublicPaths) {
+  if (existsSync(testPath)) {
+    try {
+      const stats = statSync(testPath);
+      if (stats.isDirectory()) {
+        landingPath = testPath;
+        console.log(`Found landing page at: ${landingPath}`);
+        break;
       }
-      // Don't cache HTML files to ensure updates are visible
-      if (path.endsWith('.html')) {
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
+    } catch (err) {
+      console.error(`Error checking landing path ${testPath}:`, err.message);
+    }
+  }
+}
+
+if (landingPath) {
+  // Serve landing page files with proper MIME types
+  app.use('/landing', express.static(landingPath, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.css')) {
+        res.setHeader('Content-Type', 'text/css');
+      } else if (filePath.endsWith('.js')) {
+        res.setHeader('Content-Type', 'application/javascript');
+      } else if (filePath.endsWith('.html')) {
+        res.setHeader('Content-Type', 'text/html');
       }
     }
   }));
-  console.log(`Serving static files from: ${distPath}`);
-} else {
-  console.error('Could not find dist directory at any of these paths:', possibleDistPaths);
-}
-
-// Serve the landing page under /landing path
-const possiblePublicPaths = [
-  path.join(__dirname, '../public_html'),
-  path.join(process.cwd(), 'public_html'),
-  path.join(__dirname, 'public_html')
-];
-
-let publicPath = null;
-for (const testPath of possiblePublicPaths) {
-  try {
-    console.log(`Checking public_html path: ${testPath}`);
-    const exists = existsSync(testPath);
-    console.log(`  Path exists: ${exists}`);
-    if (exists) {
-      // Double-check it's actually a directory
-      const stats = statSync(testPath);
-      if (stats.isDirectory()) {
-        publicPath = testPath;
-        console.log(`Found public_html directory at: ${publicPath}`);
-        break;
-      } else {
-        console.log(`  Path exists but is not a directory`);
-      }
-    }
-  } catch (err) {
-    console.log(`  Error checking path: ${err.message}`);
-  }
-}
-
-if (publicPath) {
-  app.use('/landing', express.static(publicPath));
   
-  // Handle landing page route explicitly (before catch-all)
+  // Explicit route for landing page
   app.get('/landing', (req, res) => {
-      res.sendFile(path.join(publicPath, 'index.html'));
+    const indexPath = path.join(landingPath, 'index.html');
+    if (existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).send('Landing page not found');
+    }
   });
 } else {
   console.error('Could not find public_html directory at any of these paths:', possiblePublicPaths);
 }
-
-// RAG Configuration API endpoints
-if (!process.env.RAG_SERVICE_URL) {
-  console.error('RAG_SERVICE_URL environment variable is required');
-  process.exit(1);
-}
-const RAG_SERVICE_URL = process.env.RAG_SERVICE_URL;
-
-// Configure multer for file uploads
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    // Allow only specific file types
-    const allowedTypes = [
-      'text/plain',
-      'text/markdown',
-      'application/pdf',
-      'text/html',
-      'application/json'
-    ];
-    
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Unsupported file type'), false);
-    }
-  }
-});
-
-// RAG Status endpoint
-app.get('/api/rag/status', rateLimiter, async (req, res) => {
-  try {
-    // Call the actual RAG service status endpoint
-    const statusResponse = await axios.get(`${RAG_SERVICE_URL}/status`, {
-      timeout: 5000
-    });
-    
-    // Forward the actual status from RAG service
-    res.json(statusResponse.data);
-  } catch (error) {
-    console.error('Failed to get RAG status:', error.message);
-    
-    // Return mock data if RAG service is unavailable
-    const fallbackStatus = {
-      totalVectors: 0,
-      totalSources: 0,
-      averageQueryTime: 0,
-      storageUsed: '0 MB',
-      isHealthy: false,
-      lastUpdate: new Date().toISOString()
-    };
-    
-    res.json(fallbackStatus);
-  }
-});
-
-// RAG Sources endpoint
-app.get('/api/rag/sources', rateLimiter, async (req, res) => {
-  try {
-    // Call the actual RAG service sources endpoint
-    const sourcesResponse = await axios.get(`${RAG_SERVICE_URL}/sources`, {
-      timeout: 5000
-    });
-    
-    // Forward the actual sources from RAG service
-    res.json(sourcesResponse.data);
-  } catch (error) {
-    console.error('Failed to get RAG sources:', error.message);
-    
-    // Return empty array if RAG service is unavailable
-    res.json([]);
-  }
-});
-
-// URL Ingestion endpoint
-app.post('/api/rag/ingest/url', rateLimiter, async (req, res) => {
-  try {
-    const { url } = req.body;
-    
-    if (!url || typeof url !== 'string') {
-      return res.status(400).json({
-        error: 'Invalid request',
-        message: 'URL is required and must be a string'
-      });
-    }
-    
-    // Validate URL format
-    try {
-      new URL(url);
-    } catch {
-      return res.status(400).json({
-        error: 'Invalid URL',
-        message: 'Please provide a valid URL'
-      });
-    }
-    
-    // Forward to RAG service
-    const response = await axios.post(`${RAG_SERVICE_URL}/ingest/url`, {
-      url: url,
-      enable_crawling: req.body.enable_crawling,
-      max_depth: req.body.max_depth,
-      max_pages: req.body.max_pages,
-      follow_external_links: req.body.follow_external_links
-    }, {
-      timeout: 300000 // 5 minutes for ingestion - increased for large pages
-    });
-    
-    res.json({
-      success: true,
-      message: 'URL ingestion started successfully',
-      data: response.data
-    });
-    
-  } catch (error) {
-    console.error('URL ingestion error:', error.message);
-    if (error.response) {
-      res.status(error.response.status).json({
-        error: 'RAG service error',
-        message: error.response.data?.message || error.message
-      });
-    } else {
-      res.status(503).json({
-        error: 'Service unavailable',
-        message: 'Could not connect to RAG service'
-      });
-    }
-  }
-});
-
-// File Upload endpoint
-// File upload endpoint - handles both multipart and JSON base64
-app.post('/api/rag/ingest/file', rateLimiter, async (req, res, next) => {
-  // Check if this is a JSON request with base64 content
-  if (req.headers['content-type']?.includes('application/json') && req.body.content) {
-    try {
-      console.log('Processing JSON base64 file upload:', {
-        filename: req.body.filename,
-        mimetype: req.body.mimetype,
-        size: req.body.size
-      });
-      
-      // Forward the JSON directly to RAG service
-      const response = await axios.post(`${RAG_SERVICE_URL}/ingest/file`, req.body, {
-        timeout: 60000, // 60 seconds for file processing
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        maxContentLength: 100 * 1024 * 1024, // 100MB
-        maxBodyLength: 100 * 1024 * 1024 // 100MB
-      });
-      
-      res.json({
-        success: true,
-        message: 'File uploaded and ingestion started successfully',
-        ...response.data
-      });
-    } catch (error) {
-      console.error('File upload error:', error.message);
-      
-      if (error.response) {
-        return res.status(error.response.status).json({
-          error: error.response.data?.detail || 'Upload failed',
-          message: error.response.data?.detail || error.message
-        });
-      }
-      
-      res.status(500).json({
-        error: 'Internal Server Error',
-        message: 'An unexpected error occurred'
-      });
-    }
-  } else {
-    // Handle multipart form data with multer
-    upload.single('file')(req, res, next);
-  }
-}, async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({
-        error: 'No file uploaded',
-        message: 'Please select a file to upload'
-      });
-    }
-    
-    const file = req.file;
-    
-    // Convert buffer to base64 for transmission to RAG service
-    const fileData = {
-      filename: file.originalname,
-      mimetype: file.mimetype,
-      content: file.buffer.toString('base64'),
-      size: file.size
-    };
-    
-    // Forward to RAG service
-    const response = await axios.post(`${RAG_SERVICE_URL}/ingest/file`, fileData, {
-      timeout: 60000, // 60 seconds for file processing
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    res.json({
-      success: true,
-      message: 'File uploaded and ingestion started successfully',
-      data: response.data
-    });
-    
-  } catch (error) {
-    console.error('File upload error:', error.message);
-    
-    if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({
-        error: 'File too large',
-        message: 'File size must be less than 10MB'
-      });
-    }
-    
-    if (error.message === 'Unsupported file type') {
-      return res.status(400).json({
-        error: 'Unsupported file type',
-        message: 'Please upload TXT, MD, PDF, HTML, or JSON files only'
-      });
-    }
-    
-    if (error.response) {
-      res.status(error.response.status).json({
-        error: 'RAG service error',
-        message: error.response.data?.message || error.message
-      });
-    } else {
-      res.status(503).json({
-        error: 'Service unavailable',
-        message: 'Could not connect to RAG service'
-      });
-    }
-  }
-});
-
-// Delete source endpoint (alternative POST method for complex IDs)
-app.post('/api/rag/sources/delete', rateLimiter, async (req, res) => {
-  try {
-    const { id } = req.body;
-    
-    if (!id || typeof id !== 'string') {
-      return res.status(400).json({
-        error: 'Invalid request',
-        message: 'Source ID is required in request body and must be a string'
-      });
-    }
-    
-    console.log(`Deleting source via POST: ${id}`);
-    
-    // Forward to RAG service's POST delete endpoint
-    const response = await axios.post(`${RAG_SERVICE_URL}/sources/delete`, {
-      id: id
-    }, {
-      timeout: 30000, // 30 seconds for deletion
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    console.log(`Source ${id} deleted successfully`);
-    
-    res.json({
-      success: true,
-      message: `Source ${id} deleted successfully`,
-      data: response.data
-    });
-    
-  } catch (error) {
-    console.error('Source deletion error:', error.message);
-    
-    if (error.response) {
-      res.status(error.response.status).json({
-        error: 'RAG service error',
-        message: error.response.data?.detail || error.message
-      });
-    } else {
-      res.status(503).json({
-        error: 'Service unavailable',
-        message: 'Could not connect to RAG service'
-      });
-    }
-  }
-});
-
-// Delete source endpoint
-app.delete('/api/rag/sources/:id', rateLimiter, async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    if (!id || typeof id !== 'string') {
-      return res.status(400).json({
-        error: 'Invalid request',
-        message: 'Source ID is required and must be a string'
-      });
-    }
-    
-    // Decode the URL-encoded source ID
-    const decodedId = decodeURIComponent(id);
-    console.log(`Deleting source: ${decodedId}`);
-    
-    // Forward to RAG service with properly encoded ID
-    const response = await axios.delete(`${RAG_SERVICE_URL}/sources/${encodeURIComponent(decodedId)}`, {
-      timeout: 30000 // 30 seconds for deletion
-    });
-    
-    console.log(`Source ${decodedId} deleted successfully`);
-    
-    res.json({
-      success: true,
-      message: `Source ${decodedId} deleted successfully`,
-      data: response.data
-    });
-    
-  } catch (error) {
-    console.error('Source deletion error:', error.message);
-    
-    if (error.response) {
-      res.status(error.response.status).json({
-        error: 'RAG service error',
-        message: error.response.data?.detail || error.message
-      });
-    } else {
-      res.status(503).json({
-        error: 'Service unavailable',
-        message: 'Could not connect to RAG service'
-      });
-    }
-  }
-});
 
 // Handle React app routes (catch-all for client-side routing)
 // This must come after specific routes but before the 404 handler
@@ -1640,7 +1577,7 @@ app.use((req, res) => {
   
   // Check if URL might be close to a valid endpoint and suggest alternatives
   if (requestedUrl.includes('gemini') || requestedUrl.includes('chat')) {
-    suggestions.push('/api/gemini/generateContent');
+    suggestions.push('/api/gemini/generateContent', '/api/v2/chat');
   }
   
   if (requestedUrl.includes('travel') || requestedUrl.includes('instructions')) {
@@ -1677,29 +1614,128 @@ app.use((req, res) => {
   
   // For non-API requests, serve the React app if available (which will handle its own 404)
   if (distPath) {
-    res.status(404).sendFile(path.join(distPath, 'index.html'));
+    res.sendFile(path.join(distPath, 'index.html'));
   } else {
-    // If no dist directory found, send a plain 404 response
-    res.status(404).send('Not Found - Application files not available');
+    // Plain text 404 for non-API requests when no React app is available
+    res.status(404).send('404 - Page not found');
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Consolidated server running on port ${PORT}`);
-    console.log(`Health check available at http://localhost:${PORT}/health`);
-    console.log('Environment:', process.env.NODE_ENV || 'production');
-    console.log('Server architecture: Consolidated (no proxy)');
+// Global error handler with detailed logging
+app.use((err, req, res, next) => {
+  const errorId = Date.now().toString(36);
+  const errorDetails = {
+    id: errorId,
+    method: req.method,
+    path: req.path,
+    query: req.query,
+    body: req.body ? JSON.stringify(req.body).substring(0, 1000) : undefined,
+    headers: {
+      'user-agent': req.headers['user-agent'],
+      'content-type': req.headers['content-type']
+    },
+    error: {
+      message: err.message,
+      stack: process.env.NODE_ENV === 'production' ? undefined : err.stack,
+      code: err.code,
+      statusCode: err.statusCode || err.status
+    },
+    timestamp: new Date().toISOString()
+  };
+  
+  // Log the error with structured data
+  console.error('Global error handler:', JSON.stringify(errorDetails, null, 2));
+  if (chatLogger && config.loggingEnabled) {
+    chatLogger.error(errorDetails);
+  }
+  
+  // Determine status code
+  const statusCode = err.statusCode || err.status || 500;
+  
+  // Send appropriate response based on content type
+  if (req.path.startsWith('/api/')) {
+    res.status(statusCode).json({
+      error: statusCode === 500 ? 'Internal Server Error' : err.message,
+      message: process.env.NODE_ENV === 'production' 
+        ? 'An unexpected error occurred. Please try again later.' 
+        : err.message,
+      errorId,
+      timestamp: new Date().toISOString()
+    });
+  } else {
+    // For non-API routes, send a simple error page
+    res.status(statusCode).send(`
+      <html>
+        <head><title>Error ${statusCode}</title></head>
+        <body>
+          <h1>Error ${statusCode}</h1>
+          <p>${statusCode === 500 ? 'Internal Server Error' : err.message}</p>
+          <p>Error ID: ${errorId}</p>
+          <p><a href="/">Go to Homepage</a></p>
+        </body>
+      </html>
+    `);
+  }
 });
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  // Perform any cleanup if needed
-  process.exit(1);
+// Handle graceful shutdown
+const gracefulShutdown = async (signal) => {
+  console.log(`\n${signal} received. Starting graceful shutdown...`);
+  
+  // Stop accepting new connections
+  server.close(() => {
+    console.log('HTTP server closed');
+  });
+  
+  // Close cache connections
+  if (cache) {
+    await cache.close();
+    console.log('Cache connections closed');
+  }
+  
+  // Allow existing connections to finish (with timeout)
+  setTimeout(() => {
+    console.log('Forcing shutdown after timeout');
+    process.exit(0);
+  }, 10000);
+};
+
+// Register shutdown handlers
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Start server
+const server = app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'production'}`);
+  console.log(`Cache: ${config.cacheEnabled ? 'Enabled' : 'Disabled'}`);
+  console.log(`Rate Limiting: ${config.rateLimitEnabled ? `Enabled (${config.rateLimitMax} req/min)` : 'Disabled'}`);
+  console.log(`Static assets: ${distPath || 'Not found'}`);
+  console.log(`Landing page: ${landingPath || 'Not found'}`);
+  
+  // Log available endpoints
+  console.log('\nAvailable endpoints:');
+  console.log('  GET  /health');
+  console.log('  GET  /api/config');
+  console.log('  GET  /api/travel-instructions');
+  console.log('  POST /api/gemini/generateContent');
+  console.log('  POST /api/v2/chat');
+  console.log('  POST /api/v2/followup');
+  console.log('  POST /api/clear-cache');
+  console.log('  GET  /api/deployment-info');
 });
 
-// Handle unhandled promise rejections
+// Handle unhandled rejections
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  // Perform any cleanup if needed
+  if (chatLogger && config.loggingEnabled) {
+    chatLogger.error({
+      type: 'unhandledRejection',
+      reason: reason?.toString(),
+      stack: reason?.stack,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
+
+export default app;

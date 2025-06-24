@@ -1,3 +1,4 @@
+# Use Python 3.11 slim image
 FROM python:3.11-slim
 
 # Set working directory
@@ -9,18 +10,21 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
+# Copy requirements first for better caching
 COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY app/ app/
-COPY .env.example .
+COPY app/ ./app/
 
-# Create necessary directories
-RUN mkdir -p logs data chroma_db
+# Create directories for data
+RUN mkdir -p /app/chroma_db /app/logs
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
 # Expose port
 EXPOSE 8000

@@ -112,7 +112,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           <div className="welcome-message">
             <div className="welcome-content">
               <h2>Welcome to Chat Interface</h2>
-              <p>This is a clean, professional chat interface ready for integration with your RAG engine.</p>
+              <p>This is a clean, professional chat interface for the Canadian Forces Travel Instructions Chatbot.</p>
             </div>
           </div>
         )}
@@ -143,7 +143,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   )}
                 </div>
                 
-                {message.sources && message.sources.length > 0 && (
+                {/* Sources Section - Commented out per user request */}
+                {/* {message.sources && message.sources.length > 0 && (
                   <div className="message-sources">
                     <div className="sources-header">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="sources-icon">
@@ -176,7 +177,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                       </div>
                     ))}
                   </div>
-                )}
+                )} */}
                 
                 <div className="message-meta">
                   <span className="timestamp">{formatTime(message.timestamp)}</span>
@@ -272,7 +273,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         
         {/* Powered by footer */}
         <div className="powered-by-footer">
-          <span>Powered by LlamaIndex & {currentModel}</span>
+          <span>Powered by {currentModel}</span>
         </div>
       </div>
     </div>

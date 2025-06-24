@@ -3,38 +3,43 @@ version: '3.8'
 services:
   rag-service:
     build: .
-    container_name: haystack-rag-service
+    container_name: cf-rag-service
     ports:
       - "8000:8000"
     environment:
+      - RAG_HOST=0.0.0.0
+      - RAG_PORT=8000
+      - RAG_WORKERS=1
+      - RAG_LOG_LEVEL=INFO
+      - RAG_REDIS_URL=redis://redis:6379
+      # API Keys - set these in .env file
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - VECTOR_STORE_TYPE=memory
-      - LOG_LEVEL=INFO
+      - VITE_GEMINI_API_KEY=${VITE_GEMINI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
-      - ./logs:/app/logs
-      - ./data:/app/data
       - ./chroma_db:/app/chroma_db
+      - ./logs:/app/logs
+    depends_on:
+      - redis
+    networks:
+      - rag-network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
-  # Optional: PostgreSQL with pgvector for persistent storage
-  # postgres:
-  #   image: pgvector/pgvector:pg16
-  #   container_name: rag-postgres
-  #   environment:
-  #     POSTGRES_USER: raguser
-  #     POSTGRES_PASSWORD: ragpass
-  #     POSTGRES_DB: ragdb
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
-  #   ports:
-  #     - "5432:5432"
-  #   restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    container_name: cf-rag-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - rag-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+networks:
+  rag-network:
+    driver: bridge
 
 volumes:
-  postgres_data:
+  redis-data:

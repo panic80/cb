@@ -1,4 +1,13 @@
-# Custom components removed in favor of Haystack built-in components
-# to fix text duplication and overlapping content issues
+"""
+Components for the RAG service.
+"""
 
-__all__ = []
+from .authority_reranker import (
+    AuthorityReranker,
+    AuthorityRerankingRetriever
+)
+
+__all__ = [
+    "AuthorityReranker",
+    "AuthorityRerankingRetriever"
+]
