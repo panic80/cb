@@ -25,9 +25,12 @@ const prefetchComponent = (importFn) => {
 
 function App() {
   // State management with batching
+  const initialTheme = localStorage.getItem('app-theme') || 'dark';
+  
+  
   const [state, setState] = useState({
     input: '',
-    theme: 'dark',
+    theme: initialTheme,
     sidebarCollapsed: false,
     isMobile: false,
     isLoading: false,
@@ -50,13 +53,14 @@ function App() {
   }, []);
 
 
-  // Theme and mobile updates
+  // Theme updates only
   useEffect(() => {
+    
+    
     const root = document.documentElement;
     root.setAttribute('data-theme', state.theme);
-    root.setAttribute('data-mobile', state.manualMobileToggle || state.isMobile);
     
-    // Add/remove class for theme to support CSS selectors in unified-chat.css
+    // Add/remove class for theme to support CSS selectors
     if (state.theme === 'light') {
       root.classList.add('light');
       root.classList.remove('dark');
@@ -64,20 +68,26 @@ function App() {
       root.classList.add('dark');
       root.classList.remove('light');
     }
+  }, [state.theme]);
+
+  // Mobile updates only
+  useEffect(() => {
     
-    // Force a repaint to ensure theme changes are applied immediately
-    root.style.display = 'none';
-    root.offsetHeight; // Trigger reflow
-    root.style.display = '';
-  }, [state.theme, state.manualMobileToggle, state.isMobile]);
+    
+    const root = document.documentElement;
+    root.setAttribute('data-mobile', state.manualMobileToggle || state.isMobile);
+  }, [state.manualMobileToggle, state.isMobile]);
 
   // Resize handler with debounce
   useEffect(() => {
     let resizeTimeout;
     const handleResize = () => {
+      
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
-        setState(prev => ({ ...prev, isMobile: window.innerWidth <= 768 }));
+        const newIsMobile = window.innerWidth <= 768;
+        
+        setState(prev => ({ ...prev, isMobile: newIsMobile }));
       }, 150);
     };
 
@@ -88,6 +98,20 @@ function App() {
       clearTimeout(resizeTimeout);
     };
   }, []);
+
+  // Theme toggle function to pass to ChatPage
+  const toggleTheme = () => {
+    
+    setState(prev => {
+      const newTheme = prev.theme === 'light' ? 'dark' : 'light';
+      
+      localStorage.setItem('app-theme', newTheme);
+      return {
+        ...prev,
+        theme: newTheme
+      };
+    });
+  };
 
 
   return (
@@ -119,7 +143,7 @@ function App() {
               path="/chat"
               element={
                 <Suspense fallback={<div className="min-h-screen bg-background" />}>
-                  <ChatPage />
+                  <ChatPage theme={state.theme} toggleTheme={toggleTheme} />
                 </Suspense>
               }
             />
@@ -157,10 +181,18 @@ function App() {
           {state.isMobile && (
             <MobileNavBar
               theme={state.theme}
-              toggleTheme={() => setState(prev => ({
-                ...prev,
-                theme: prev.theme === 'light' ? 'dark' : 'light'
-              }))}
+              toggleTheme={() => {
+                
+                setState(prev => {
+                  const newTheme = prev.theme === 'light' ? 'dark' : 'light';
+                  
+                  localStorage.setItem('app-theme', newTheme);
+                  return {
+                    ...prev,
+                    theme: newTheme
+                  };
+                });
+              }}
             />
           )}
         </Suspense>

@@ -55,10 +55,15 @@ const formatPlainTextToMarkdown = (text: string): string => {
   return formatted.trim();
 };
 
+interface ChatPageProps {
+  theme?: string;
+  toggleTheme?: () => void;
+}
+
 /**
  * Enhanced Chat page with modern UI/UX improvements
  */
-const ChatPage: React.FC = () => {
+const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: propToggleTheme }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -86,12 +91,8 @@ const ChatPage: React.FC = () => {
   const rotateX = useTransform(mouseY, [-300, 300], [15, -15]);
   const rotateY = useTransform(mouseX, [-300, 300], [-15, 15]);
   
-  // Theme state matching the landing page
-  const [theme, setTheme] = useState(() => {
-    const storedTheme = localStorage.getItem('elite-chat-theme');
-    if (storedTheme) return storedTheme;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
+  // Use theme from props or fall back to local detection for standalone usage
+  const theme = propTheme || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   
   // Inline command suggestions
   const inlineCommands = [
@@ -101,11 +102,13 @@ const ChatPage: React.FC = () => {
     { icon: <HelpCircle size={16} />, label: 'Explain', command: '/explain', description: 'Get detailed explanation' },
   ];
 
-  // Apply theme changes to document
+  // Apply theme changes to document only if not managed by parent
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-    document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
+    if (!propTheme) {
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+  }, [theme, propTheme]);
   
   // Handle mouse movement for interactive effects
   useEffect(() => {
@@ -128,14 +131,10 @@ const ChatPage: React.FC = () => {
     setCurrentModel(displayModel);
   }, []);
 
-  // Toggle theme function
-  const toggleTheme = () => {
-    setTheme(prev => {
-      const newTheme = prev === 'light' ? 'dark' : 'light';
-      localStorage.setItem('elite-chat-theme', newTheme);
-      return newTheme;
-    });
-  };
+  // Use provided toggle function or create a no-op if not provided
+  const toggleTheme = propToggleTheme || (() => {
+    
+  });
 
   // Auto-scroll to bottom when messages change or loading state changes
   useEffect(() => {

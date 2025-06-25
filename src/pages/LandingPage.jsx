@@ -90,7 +90,7 @@ export default function LandingPage() {
   const [showModal, setShowModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
-  console.log('LandingPage rendered', { theme, showModal, showPrivacyModal, showAboutModal });
+  
   useEffect(() => {
     const computedFont = window.getComputedStyle(document.body).getPropertyValue('font-family');
     console.log('Computed font-family on landing page:', computedFont);
