@@ -12,8 +12,30 @@
     --text-secondary: #475569;
     --primary: #2563eb;
     --primary-rgb: 37, 99, 235;
+    --primary-hover: #1d4ed8;
+    --primary-active: #1e40af;
     --border: #e2e8f0;
     --border-rgb: 226, 232, 240;
+    
+    /* Semantic colors - Light */
+    --success: #10b981;
+    --success-rgb: 16, 185, 129;
+    --success-hover: #059669;
+    --warning: #f59e0b;
+    --warning-rgb: 245, 158, 11;
+    --warning-hover: #d97706;
+    --error: #ef4444;
+    --error-rgb: 239, 68, 68;
+    --error-hover: #dc2626;
+    --info: #3b82f6;
+    --info-rgb: 59, 130, 246;
+    --info-hover: #2563eb;
+    
+    /* Extended palette */
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --accent: #f0f9ff;
+    --accent-foreground: #0369a1;
 
     transition:
       background-color var(--theme-transition),
@@ -32,8 +54,30 @@
     --text-secondary: #94a3b8;
     --primary: #60a5fa;
     --primary-rgb: 96, 165, 250;
+    --primary-hover: #3b82f6;
+    --primary-active: #2563eb;
     --border: #334155;
     --border-rgb: 51, 65, 85;
+    
+    /* Semantic colors - Dark */
+    --success: #34d399;
+    --success-rgb: 52, 211, 153;
+    --success-hover: #10b981;
+    --warning: #fbbf24;
+    --warning-rgb: 251, 191, 36;
+    --warning-hover: #f59e0b;
+    --error: #f87171;
+    --error-rgb: 248, 113, 113;
+    --error-hover: #ef4444;
+    --info: #60a5fa;
+    --info-rgb: 96, 165, 250;
+    --info-hover: #3b82f6;
+    
+    /* Extended palette */
+    --muted: #1e293b;
+    --muted-foreground: #94a3b8;
+    --accent: #1e293b;
+    --accent-foreground: #60a5fa;
 
     transition:
       background-color var(--theme-transition),

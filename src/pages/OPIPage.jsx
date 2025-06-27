@@ -1,30 +1,74 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { 
   MagnifyingGlassIcon as Search, 
   UserGroupIcon, 
   EnvelopeIcon as Mail, 
-  BuildingOfficeIcon as Building,
-  ArrowLeftIcon
+  BuildingOfficeIcon as Building
 } from '@heroicons/react/24/outline';
+import {
+  InformationCircleIcon,
+  EnvelopeIcon,
+  ShieldCheckIcon
+} from '@heroicons/react/24/solid';
 import '../styles/landing.css';
 import '../styles/sticky-footer.css';
 
 // shadcn/ui components
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { AnimatedButton } from '@/components/ui/animated-button';
+import { EnhancedBackButton } from '@/components/ui/enhanced-back-button';
 import { cn } from '@/lib/utils';
 
+// Import FluentDesignView
+import FluentDesignView from './OPIPage/FluentDesignView';
+
 export default function OPIPage() {
+  const location = useLocation();
+  const topRef = useRef(null);
   const [contactView, setContactView] = useState('search');
   const [selectedUnit, setSelectedUnit] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [designStyle, setDesignStyle] = useState('card'); // card, list, table
+  const [isLoading, setIsLoading] = useState(true);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
+  
+  // Scroll to top on component mount and route change
+  useLayoutEffect(() => {
+    // Immediate scroll
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    
+    // Find all scrollable containers and reset them
+    const scrollableElements = document.querySelectorAll('*');
+    scrollableElements.forEach(el => {
+      if (el.scrollTop > 0) {
+        el.scrollTop = 0;
+      }
+    });
+    
+    // Delayed scroll to handle any async content
+    const timers = [0, 100, 300].map(delay => 
+      setTimeout(() => {
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+        // Also scroll the ref into view
+        if (topRef.current) {
+          topRef.current.scrollIntoView({ behavior: 'instant', block: 'start' });
+        }
+      }, delay)
+    );
+    
+    return () => timers.forEach(timer => clearTimeout(timer));
+  }, [location.pathname]);
+  
+  // Simulate loading state
+  useEffect(() => {
+    const timer = setTimeout(() => setIsLoading(false), 800);
+    return () => clearTimeout(timer);
+  }, []);
   
   // Initialize theme from localStorage or system preference
   const [theme, setTheme] = useState(() => {
@@ -48,6 +92,12 @@ export default function OPIPage() {
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  // Handle About link click
+  const handleAboutClick = (e) => {
+    e.preventDefault();
+    setShowAboutModal(true);
+  };
 
   // Contact data
   const unitContacts = {
@@ -164,19 +214,19 @@ export default function OPIPage() {
     },
     {
       name: 'Cpl Downes',
-      role: 'Section 1',
+      role: 'FSC 1 Section',
       email: 'william.downes@forces.gc.ca',
       units: ['2 Int', '32 CBG HQ', '32 CER', '32 Svc Bn', 'GGHG']
     },
     {
       name: 'Sgt Ro',
-      role: 'Section 2',
+      role: 'FSC 2 Section',
       email: 'eugene.ro@forces.gc.ca',
       units: ['48th Highrs', '7 Tor', 'Tor Scots', 'QOR']
     },
     {
       name: 'Sgt Zeng',
-      role: 'Section 3',
+      role: 'FSC 3 Section',
       email: 'aidi.zeng@forces.gc.ca',
       units: ['32 Sig Regt', 'Lorne Scots', 'QY Rang', 'R Regt C']
     }
@@ -185,499 +235,284 @@ export default function OPIPage() {
   // FMC contacts organized by group
   const fmcContacts = [
     {
+      name: 'Sgt Peter Cuprys',
+      role: 'FMC Warrant Officer',
+      email: 'PETER.CUPRYS@forces.gc.ca',
+      units: [],
+      isLeadership: true
+    },
+    {
       name: 'Sgt Jennifer Wood',
-      role: 'Group 1',
+      role: 'FMC 1 Section',
       email: 'JENNIFER.WOOD@forces.gc.ca',
       units: ['GGHG', 'QY Rang', '7 Tor', '48th Highrs']
     },
     {
       name: 'Sgt Gordon Brown',
-      role: 'Group 2',
+      role: 'FMC 2 Section',
       email: 'GORDON.BROWN2@forces.gc.ca',
       units: ['R Regt C', '32 Svc Bn', 'QOR', '32 CER']
     },
     {
       name: 'MCpl Angela McDonald',
-      role: 'Group 3',
+      role: 'FMC 3 Section',
       email: 'ANGELA.MCDONALD@forces.gc.ca',
       units: ['32 Sig Regt', 'Lorne Scots', 'Tor Scots', '2 Int']
     },
     {
       name: 'Sgt Mabel James',
-      role: 'Group 4',
+      role: 'FMC 4 Section',
       email: 'MABEL.JAMES@forces.gc.ca',
       units: ['Linc & Welld', '56 Fd']
-    },
-    {
-      name: 'Sgt Peter Cuprys',
-      role: 'Alternate Contact',
-      email: 'PETER.CUPRYS@forces.gc.ca',
-      units: []
     }
   ];
 
-  // Contact Card Component - Mobile optimized
-  const ContactCard = ({ contact }) => (
-    <Card className="group rounded-xl p-4 sm:p-6 transition-all duration-200 hover:shadow-md border border-[var(--border)] bg-[var(--card)]">
-      <div className="space-y-3 sm:space-y-4">
-        <div>
-          <h3 className="text-base sm:text-lg font-semibold text-[var(--text)] mb-1">
-            {contact.name}
-          </h3>
-          <p className="text-sm sm:text-base text-[var(--text-secondary)]">
-            {contact.role}
-          </p>
-        </div>
-        
-        {contact.units && contact.units.length > 0 && (
-          <div className="flex flex-wrap gap-1 sm:gap-2">
-            {contact.units.map((unit, index) => (
-              <Badge key={index} variant="secondary" className="text-xs sm:text-sm">
-                {unit}
-              </Badge>
-            ))}
-          </div>
-        )}
-        
-        <a 
-          href={`mailto:${contact.email}`}
-          className="inline-flex items-center text-sm sm:text-base text-[var(--primary)] hover:underline font-medium pt-2 break-all"
-        >
-          <Mail className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 flex-shrink-0" />
-          <span className="break-all">{contact.email}</span>
-        </a>
-      </div>
-    </Card>
-  );
-
-  // Table Component - Mobile optimized with responsive design
-  const ContactTable = ({ contacts, title }) => (
-    <Card className="overflow-hidden rounded-xl shadow-sm">
-      <CardHeader className="bg-[var(--background-secondary)] p-4 sm:p-6">
-        <CardTitle className="text-lg sm:text-xl">{title}</CardTitle>
-      </CardHeader>
-      
-      {/* Mobile: Stack layout */}
-      <div className="sm:hidden">
-        <div className="space-y-4 p-4">
-          {contacts.map((contact, index) => (
-            <div key={index} className="border border-[var(--border)] rounded-lg p-4 space-y-3 bg-[var(--card)]">
-              <div className="flex justify-between items-start gap-3">
-                <div className="flex-1">
-                  <h4 className="font-medium text-base">{contact.name}</h4>
-                  <p className="text-sm text-[var(--text-secondary)] mt-1">{contact.role}</p>
-                </div>
-              </div>
-              
-              {contact.units && contact.units.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {contact.units.map((unit, idx) => (
-                    <Badge key={idx} variant="secondary" className="text-xs">
-                      {unit}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-              
-              <div className="pt-2 border-t border-[var(--border)]">
-                <a 
-                  href={`mailto:${contact.email}`} 
-                  className="text-sm text-[var(--primary)] hover:underline font-medium break-all"
-                >
-                  {contact.email}
-                </a>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Desktop: Table layout */}
-      <div className="hidden sm:block overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="h-12 px-6 text-base whitespace-nowrap min-w-[140px]">Name</TableHead>
-              <TableHead className="h-12 px-6 text-base whitespace-nowrap min-w-[180px]">Role</TableHead>
-              <TableHead className="h-12 px-6 text-base whitespace-nowrap min-w-[200px]">Units</TableHead>
-              <TableHead className="h-12 px-6 text-base whitespace-nowrap min-w-[250px]">Email</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {contacts.map((contact, index) => (
-              <TableRow key={index} className="hover:bg-[var(--background-secondary)] transition-colors">
-                <TableCell className="px-6 py-4">
-                  <span className="text-base font-medium">{contact.name}</span>
-                </TableCell>
-                <TableCell className="px-6 py-4 text-base text-[var(--text-secondary)]">
-                  {contact.role}
-                </TableCell>
-                <TableCell className="px-6 py-4">
-                  {contact.units && contact.units.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {contact.units.map((unit, idx) => (
-                        <Badge key={idx} variant="secondary" className="text-sm">
-                          {unit}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : '—'}
-                </TableCell>
-                <TableCell className="px-6 py-4">
-                  <a href={`mailto:${contact.email}`} className="text-base text-[var(--primary)] hover:underline font-medium break-all">
-                    {contact.email}
-                  </a>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </Card>
-  );
-
-  // List Component - Spacious layout
-  const ContactList = ({ contact }) => (
-    <div className="p-4 rounded-lg hover:bg-[var(--background-secondary)] transition-colors border-b border-[var(--border)] last:border-0">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex-1">
-          <h4 className="text-base font-semibold mb-1">{contact.name}</h4>
-          <p className="text-base text-[var(--text-secondary)]">{contact.role}</p>
-          {contact.units && contact.units.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-2">
-              {contact.units.map((unit, index) => (
-                <Badge key={index} variant="secondary" className="text-sm">
-                  {unit}
-                </Badge>
-              ))}
-            </div>
-          )}
-        </div>
-        <a href={`mailto:${contact.email}`} className="text-base text-[var(--primary)] hover:underline font-medium whitespace-nowrap">
-          {contact.email}
-        </a>
-      </div>
-    </div>
-  );
-
   return (
-    <div className="root-container">
+    <div ref={topRef} className="root-container" style={{ scrollBehavior: 'auto' }}>
       <div className="flex flex-col min-h-screen">
         <div className="flex-grow">
-          <div className="bg-[var(--background)] text-[var(--text)] pt-12">
-            {/* Theme Toggle */}
-            <div className="fixed top-4 right-4 z-50">
-              <button
-                onClick={toggleTheme}
-                className="flex items-center justify-center p-3 bg-[var(--card)] text-[var(--text)] rounded-full shadow-lg hover:shadow-xl transition-all duration-300 border-2 border-[var(--primary)] hover:bg-[var(--background-secondary)] hover:scale-110"
-                aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-              >
-                {theme === 'light' ? (
-                  // Moon icon for light mode
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M20 14.12A7.78 7.78 0 019.88 4a7.78 7.78 0 002.9 15.1 7.78 7.78 0 007.22-5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                ) : (
-                  // Sun icon for dark mode
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
-                    <path d="M12 2v2m0 16v2M2 12h2m16 0h2m-3-7l-1.5 1.5M4.93 4.93l1.5 1.5m11.14 11.14l1.5 1.5M4.93 19.07l1.5-1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                )}
-              </button>
-            </div>
+          <div className="bg-[var(--background)] text-[var(--text)]">
 
-            {/* Hero Section - Enhanced with Main Page Theme */}
-            <header className="relative min-h-[35vh] sm:min-h-[40vh] flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 pb-6 sm:pb-8 md:pb-12 hero-gradient overflow-hidden border-b border-[var(--border)]">
-              {/* Back Button - Mobile optimized */}
-              <Link 
-                to="/" 
-                className="absolute top-3 left-3 sm:top-4 sm:left-4 z-50 flex items-center gap-1 sm:gap-2 px-3 py-2 sm:px-4 bg-[var(--card)] text-[var(--text)] rounded-full shadow-lg hover:shadow-xl transition-all duration-300 border border-[var(--border)] hover:bg-[var(--background-secondary)] hover:scale-105 group"
-                aria-label="Back to main page"
-              >
-                <ArrowLeftIcon className="w-4 h-4 sm:w-5 sm:h-5 transition-transform group-hover:-translate-x-1" />
-                <span className="font-medium text-sm sm:text-base">Back</span>
-              </Link>
-
-              {/* Decorative Background Elements */}
-              <div className="absolute inset-0 pointer-events-none">
-                <div className="absolute w-[400px] h-[400px] rounded-full blur-3xl opacity-20 floating"
-                  style={{
-                    background: `radial-gradient(circle at center, var(--primary) 0%, transparent 70%)`,
-                    top: '-5%',
-                    left: '-5%',
-                  }}
-                />
-                <div className="absolute w-[400px] h-[400px] rounded-full blur-3xl opacity-20 floating"
-                  style={{
-                    background: `radial-gradient(circle at center, var(--primary) 0%, transparent 70%)`,
-                    bottom: '-5%',
-                    right: '-5%',
-                    animationDelay: '-1.5s',
-                  }}
-                />
-              </div>
-
-              <div className="w-full max-w-4xl mx-auto text-center relative z-10">
-                {/* Animated Icon - Mobile optimized */}
-                <div className="mb-6 sm:mb-10 flex justify-center transform transition-all duration-500 hover:scale-110">
-                  <UserGroupIcon
-                    className="w-16 h-16 sm:w-20 sm:h-20 text-[var(--primary)] animate-scale"
-                    style={{
-                      filter: 'drop-shadow(0 0 15px rgba(var(--primary-rgb), 0.3))',
-                    }}
-                    aria-hidden="true"
-                  />
-                </div>
-
-                {/* Title with Enhanced Typography - Mobile optimized */}
-                <div className="space-y-4 sm:space-y-6">
-                  <h1
-                    className="text-2xl sm:text-4xl md:text-5xl lg:text-6xl font-bold mb-4 animate-fade-up gradient-text"
-                    style={{ animationDelay: '0.2s' }}
-                    role="heading"
-                    aria-level="1"
-                  >
+            {/* Header */}
+            <header className="border-b border-[var(--border)] bg-background/95 backdrop-blur sticky top-0 z-40">
+              <div className="h-14 px-4 flex items-center justify-between">
+                <div className="flex items-center">
+                  <EnhancedBackButton to="/" label="Back" variant="minimal" size="sm" />
+                  <div className="h-6 w-px bg-border/50 mx-3" />
+                  <UserGroupIcon className="w-8 h-8 text-[var(--primary)] mr-2" />
+                  <span className="text-2xl font-bold text-foreground">
                     Office of Primary Interest
-                    <span
-                      className="block text-sm sm:text-lg md:text-xl mt-2 sm:mt-4 text-[var(--text-secondary)] font-normal animate-fade-up"
-                      style={{ animationDelay: '0.4s' }}
-                    >
-                      Financial Services Contact Directory • 32 CBG
-                    </span>
-                  </h1>
-
-                  <p
-                    className="text-base sm:text-lg md:text-xl text-center max-w-2xl mx-auto text-[var(--text)] opacity-90 leading-relaxed animate-fade-up glass p-4 sm:p-6 rounded-2xl"
-                    style={{ animationDelay: '0.6s' }}
-                  >
-                    Your comprehensive directory for FSC and FMC contact information. Find the right personnel for your unit's financial services and management needs.
-                  </p>
+                  </span>
                 </div>
               </div>
             </header>
 
+
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 py-6 sm:py-12">
-
-              {/* Navigation - Mobile optimized */}
-              <div className="mb-8 sm:mb-12">
-                <Tabs value={contactView} onValueChange={setContactView} className="w-full">
-                  <TabsList className="grid w-full grid-cols-3 h-12 sm:h-16 p-1">
-                    <TabsTrigger value="fsc" className="text-xs sm:text-base font-medium px-1 sm:px-3">
-                      <span className="hidden sm:inline">FSC Contacts</span>
-                      <span className="sm:hidden">FSC</span>
-                    </TabsTrigger>
-                    <TabsTrigger value="fmc" className="text-xs sm:text-base font-medium px-1 sm:px-3">
-                      <span className="hidden sm:inline">FMC Contacts</span>
-                      <span className="sm:hidden">FMC</span>
-                    </TabsTrigger>
-                    <TabsTrigger value="search" className="text-xs sm:text-base font-medium px-1 sm:px-3">
-                      <span className="hidden sm:inline">Search by Unit</span>
-                      <span className="sm:hidden">Search</span>
-                    </TabsTrigger>
-                    </TabsList>
-                    
-                    {/* View Selector - Mobile optimized */}
-                    <div className="flex justify-center gap-2 mt-4 sm:mt-6">
-                      <Button
-                        variant={designStyle === 'card' ? "secondary" : "ghost"}
-                        size="sm"
-                        onClick={() => setDesignStyle('card')}
-                        className="px-3 sm:px-4 text-sm sm:text-base"
-                      >
-                        <span className="mr-1 sm:mr-2">▦</span>
-                        Cards
-                      </Button>
-                      <Button
-                        variant={designStyle === 'table' ? "secondary" : "ghost"}
-                        size="sm"
-                        onClick={() => setDesignStyle('table')}
-                        className="px-3 sm:px-4 text-sm sm:text-base"
-                      >
-                        <span className="mr-1 sm:mr-2">⊡</span>
-                        Table
-                      </Button>
-                    </div>
-                </Tabs>
-              </div>
-
-              {/* Content */}
-              <Tabs value={contactView} onValueChange={setContactView}>
-                <TabsContent value="search" className="space-y-6 sm:space-y-8">
-                  <Card className="border border-[var(--border)] rounded-xl shadow-sm">
-                    <CardHeader className="pb-4 sm:pb-6 p-4 sm:p-6">
-                      <CardTitle className="text-lg sm:text-xl">Find Your Unit</CardTitle>
-                      <CardDescription className="text-sm sm:text-base">Search or select your unit to view contact information</CardDescription>
-                    </CardHeader>
-                    <CardContent className="p-4 sm:p-6 pt-0">
-                      <div className="space-y-4 sm:space-y-6">
-                        <div className="relative">
-                          <Search className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
-                          <Input
-                            placeholder="Search units..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-10 sm:pl-12 h-10 sm:h-12 text-sm sm:text-base"
-                          />
-                        </div>
-                        
-                        <Select value={selectedUnit} onValueChange={setSelectedUnit}>
-                          <SelectTrigger className="h-10 sm:h-12 text-sm sm:text-base">
-                            <SelectValue placeholder="Select a unit" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {filteredUnits.map((unit) => (
-                              <SelectItem key={unit} value={unit} className="py-2 sm:py-3 text-sm sm:text-base">
-                                {unit}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {selectedUnit && unitContacts[selectedUnit] && (
-                    <div>
-                      {designStyle === 'table' ? (
-                        <ContactTable 
-                          contacts={[
-                            {
-                              name: unitContacts[selectedUnit].fsc,
-                              role: 'Financial Services Cell (FSC)',
-                              email: unitContacts[selectedUnit].fscEmail,
-                              units: [selectedUnit]
-                            },
-                            {
-                              name: unitContacts[selectedUnit].fmc,
-                              role: 'Financial Management Cell (FMC)',
-                              email: unitContacts[selectedUnit].fmcEmail,
-                              units: [selectedUnit]
-                            }
-                          ]}
-                          title={`Contacts for ${selectedUnit}`}
-                        />
-                      ) : designStyle === 'list' ? (
-                        <Card className="border-2 shadow-xl">
-                          <CardHeader className="p-8 pb-6">
-                            <CardTitle className="text-3xl font-bold">Contacts for {selectedUnit}</CardTitle>
-                          </CardHeader>
-                          <CardContent className="space-y-6 p-8 pt-0">
-                            <ContactList
-                              contact={{
-                                name: unitContacts[selectedUnit].fsc,
-                                role: 'Financial Services Cell (FSC)',
-                                email: unitContacts[selectedUnit].fscEmail,
-                                units: [selectedUnit]
-                              }}
-                            />
-                            <ContactList
-                              contact={{
-                                name: unitContacts[selectedUnit].fmc,
-                                role: 'Financial Management Cell (FMC)',
-                                email: unitContacts[selectedUnit].fmcEmail,
-                                units: [selectedUnit]
-                              }}
-                            />
-                          </CardContent>
-                        </Card>
-                      ) : (
-                        <div className="space-y-6 sm:space-y-8">
-                          <div className="text-center">
-                            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-2 sm:mb-3">Contacts for {selectedUnit}</h2>
-                            <p className="text-base sm:text-lg lg:text-xl text-muted-foreground">Your financial services team</p>
-                          </div>
-                          <div className="grid gap-4 sm:gap-6 lg:gap-8 md:grid-cols-2">
-                            <ContactCard
-                              contact={{
-                                name: unitContacts[selectedUnit].fsc,
-                                role: 'Financial Services Cell (FSC)',
-                                email: unitContacts[selectedUnit].fscEmail,
-                                units: [selectedUnit]
-                              }}
-                            />
-                            <ContactCard
-                              contact={{
-                                name: unitContacts[selectedUnit].fmc,
-                                role: 'Financial Management Cell (FMC)',
-                                email: unitContacts[selectedUnit].fmcEmail,
-                                units: [selectedUnit]
-                              }}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </TabsContent>
-
-                <TabsContent value="fsc" className="animate-fade-up" style={{ animationDelay: '1s' }}>
-                  {designStyle === 'table' ? (
-                    <ContactTable 
-                      contacts={fscContacts}
-                      title="Financial Services Cell (FSC)"
-                    />
-                  ) : designStyle === 'list' ? (
-                    <Card className="glass rounded-2xl">
-                      <CardHeader className="p-6">
-                        <CardTitle className="text-xl">Financial Services Cell (FSC)</CardTitle>
-                        <CardDescription>FSC personnel organized by sections</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-3 p-6 pt-0">
-                        {fscContacts.map((contact, index) => (
-                          <ContactList key={index} contact={contact} />
-                        ))}
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <div className="grid gap-4 sm:gap-6 md:grid-cols-2 xl:grid-cols-3">
-                      {fscContacts.map((contact, index) => (
-                        <ContactCard key={index} contact={contact} />
-                      ))}
-                    </div>
-                  )}
-                </TabsContent>
-
-                <TabsContent value="fmc" className="animate-fade-up" style={{ animationDelay: '1s' }}>
-                  {designStyle === 'table' ? (
-                    <ContactTable 
-                      contacts={fmcContacts}
-                      title="Financial Management Cell (FMC)"
-                    />
-                  ) : designStyle === 'list' ? (
-                    <Card className="glass rounded-2xl">
-                      <CardHeader className="p-6">
-                        <CardTitle className="text-xl">Financial Management Cell (FMC)</CardTitle>
-                        <CardDescription>FMC personnel organized by unit groups</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-3 p-6 pt-0">
-                        {fmcContacts.map((contact, index) => (
-                          <ContactList key={index} contact={contact} />
-                        ))}
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <div className="grid gap-4 sm:gap-6 md:grid-cols-2 xl:grid-cols-3">
-                      {fmcContacts.map((contact, index) => (
-                        <ContactCard key={index} contact={contact} />
-                      ))}
-                    </div>
-                  )}
-                </TabsContent>
-              </Tabs>
+              {/* Fluent Design View */}
+              <FluentDesignView 
+                unitContacts={unitContacts}
+                fscContacts={fscContacts}
+                fmcContacts={fmcContacts}
+                contactView={contactView}
+                selectedUnit={selectedUnit}
+                searchTerm={searchTerm}
+                setSelectedUnit={setSelectedUnit}
+                setSearchTerm={setSearchTerm}
+                setContactView={setContactView}
+              />
             </div>
-
-            {/* Footer - Mobile optimized */}
-            <footer className="mt-8 sm:mt-12 px-4 sm:px-6 lg:px-8 xl:px-12 border-t border-[var(--border)] bg-[var(--background-secondary)]" role="contentinfo">
-              <div className="max-w-5xl mx-auto py-6 sm:py-8">
-                <div className="text-center text-sm sm:text-base text-[var(--text)] opacity-60">
-                  <p>&copy; {new Date().getFullYear()} G8 Administration Hub. All rights reserved.</p>
-                </div>
-              </div>
-            </footer>
           </div>
         </div>
+
+        {/* Footer */}
+        <footer className="mt-auto px-4 sm:px-6 lg:px-8 border-t border-[var(--border)]" role="contentinfo">
+          <div className="max-w-5xl mx-auto py-6">
+            {/* Mobile-optimized footer content */}
+            <div className="md:hidden">
+              <nav className="flex justify-around my-2" aria-label="Footer Navigation">
+                <a
+                  href="#"
+                  onClick={handleAboutClick}
+                  className="inline-flex flex-col items-center text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1"
+                >
+                  <InformationCircleIcon className="w-5 h-5" aria-hidden="true" />
+                  <span className="text-xs mt-1">About</span>
+                </a>
+                <a
+                  href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
+                  className="inline-flex flex-col items-center text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1"
+                >
+                  <EnvelopeIcon className="w-5 h-5" aria-hidden="true" />
+                  <span className="text-xs mt-1">Contact</span>
+                </a>
+                <div
+                  onClick={() => setShowPrivacyModal(true)}
+                  className="inline-flex flex-col items-center text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1 cursor-pointer"
+                >
+                  <ShieldCheckIcon className="w-5 h-5" aria-hidden="true" />
+                  <span className="text-xs mt-1">Privacy</span>
+                </div>
+              </nav>
+              <div className="text-center text-xs text-[var(--text)] opacity-50 mt-1">
+                <p>&copy; {new Date().getFullYear()} G8 Administration Hub</p>
+              </div>
+            </div>
+            
+            {/* Desktop footer content */}
+            <div className="hidden md:block">
+              <nav className="flex flex-wrap justify-center gap-4 sm:gap-6 lg:gap-8 mb-4" aria-label="Footer Navigation">
+                <a
+                  href="#"
+                  onClick={handleAboutClick}
+                  className="inline-flex items-center space-x-2 text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1 text-sm sm:text-base"
+                >
+                  <InformationCircleIcon className="w-4 h-4 sm:w-5 sm:h-5" aria-hidden="true" />
+                  <span>About</span>
+                </a>
+                <a
+                  href="mailto:g8@sent.com?subject=Contacting%20from%20G8%20homepage"
+                  className="inline-flex items-center space-x-2 text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1 text-sm sm:text-base"
+                >
+                  <EnvelopeIcon className="w-4 h-4 sm:w-5 sm:h-5" aria-hidden="true" />
+                  <span>Contact</span>
+                </a>
+                <div
+                  onClick={() => setShowPrivacyModal(true)}
+                  className="inline-flex items-center space-x-2 text-[var(--text)] opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-[var(--primary)] rounded px-2 py-1 cursor-pointer text-sm sm:text-base"
+                >
+                  <ShieldCheckIcon className="w-4 h-4 sm:w-5 sm:h-5" aria-hidden="true" />
+                  <span>Privacy Policy</span>
+                </div>
+              </nav>
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 text-xs sm:text-sm text-[var(--text)] opacity-50">
+                <p>&copy; {new Date().getFullYear()} G8 Administration Hub. All rights reserved. Not affiliated with DND or CAF.</p>
+                <p>Last updated: June 6, 2025</p>
+              </div>
+            </div>
+          </div>
+        </footer>
       </div>
+
+      {/* Privacy Modal */}
+      {showPrivacyModal && (
+        <>
+          <div 
+            className="fixed inset-0 bg-black/60 z-40 animate-fade-in"
+            onClick={() => setShowPrivacyModal(false)}
+          />
+          <div 
+            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 animate-float-up"
+          >
+            <div 
+              className="w-[min(90vw,_32rem)] bg-[var(--card)] text-[var(--text)] rounded-xl border border-[var(--border)] shadow-2xl overflow-hidden"
+            >
+              <div className="p-4 sm:p-6 border-b border-[var(--border)]">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl sm:text-2xl font-semibold">Privacy Policy</h2>
+                  <button 
+                    onClick={() => setShowPrivacyModal(false)}
+                    className="p-2 hover:bg-[var(--background-secondary)] rounded-full transition-colors w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center"
+                    aria-label="Close privacy modal"
+                  >
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 16rem)' }}>
+                <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+                  <h3 className="text-base sm:text-lg font-semibold">General Privacy Notice</h3>
+                  <p className="text-sm sm:text-base text-[var(--text)] leading-relaxed">
+                    We prioritize the protection of your personal information and are committed to maintaining your trust.
+                  </p>
+                  
+                  <h3 className="text-base sm:text-lg font-semibold mt-4 sm:mt-6">Data Collection & Usage</h3>
+                  <ul className="list-disc pl-5 space-y-2 text-sm sm:text-base text-[var(--text)] opacity-80">
+                    <li>We collect only essential information needed for the service</li>
+                    <li>Your data is encrypted and stored securely</li>
+                    <li>We do not sell or share your personal information</li>
+                    <li>You have control over your data and can request its deletion</li>
+                  </ul>
+
+                  <h3 className="text-base sm:text-lg font-semibold mt-4 sm:mt-6">AI Processing (Gemini)</h3>
+                  <p className="text-sm sm:text-base text-[var(--text)] leading-relaxed">
+                    This application uses Google's Gemini AI. When you interact with our AI features:
+                  </p>
+                  <ul className="list-disc pl-5 space-y-2 text-sm sm:text-base text-[var(--text)] opacity-80">
+                    <li>Your conversations may be processed to improve responses</li>
+                    <li>No personally identifiable information is retained by the AI</li>
+                    <li>Conversations are not used to train the core AI model</li>
+                    <li>You can opt out of AI features at any time</li>
+                  </ul>
+
+                  <p className="text-xs sm:text-sm text-[var(--text-secondary)] mt-4 sm:mt-6">
+                    For more details about Gemini's data handling, please visit Google's AI privacy policy.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 sm:p-6 border-t border-[var(--border)] bg-[var(--background-secondary)] rounded-b-xl">
+                <button
+                  onClick={() => setShowPrivacyModal(false)}
+                  className="w-full px-4 py-2 sm:py-3 text-center text-sm sm:text-base text-[var(--text)] bg-[var(--card)] hover:bg-[var(--primary)] hover:text-white rounded-lg transition-colors duration-200 h-10 sm:h-12"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* About Modal */}
+      {showAboutModal && (
+        <>
+          <div 
+            className="fixed inset-0 bg-black/60 z-40 animate-fade-in" 
+            onClick={() => setShowAboutModal(false)}
+          />
+          <div 
+            className="fixed z-50 animate-float-up max-w-lg w-[90vw] mx-auto" 
+            style={{
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)"
+            }}
+          >
+            <div className="bg-[var(--card)] text-[var(--text)] rounded-xl border border-[var(--border)] shadow-2xl">
+              <div className="p-4 sm:p-6 border-b border-[var(--border)]">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl sm:text-2xl font-semibold">About This Page</h2>
+                  <button onClick={() => setShowAboutModal(false)}
+                          className="p-2 hover:bg-[var(--background-secondary)] rounded-full transition-colors w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center"
+                          aria-label="Close modal">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div className="p-4 sm:p-6 overflow-y-auto" style={{ maxHeight: "calc(100vh - 16rem)" }}>
+                <p className="mb-3 sm:mb-4 text-sm sm:text-base">
+                  This unofficial site is not affiliated with the Department of National Defence (DND), the Canadian Armed Forces (CAF), or any associated departments or services. Use of this site is entirely at your own discretion.
+                </p>
+                <h3 className="text-base sm:text-lg font-semibold mb-2">Purpose</h3>
+                <p className="mb-3 sm:mb-4 text-sm sm:text-base">
+                  Our goal is to provide Primary Reserve (P Res) members with quick and convenient access to essential G8 resources. We strive to streamline administrative processes and ensure you can locate accurate, up-to-date information whenever you need it.
+                </p>
+                <h3 className="text-base sm:text-lg font-semibold mb-2">Currently Available</h3>
+                <ul className="list-disc list-inside mb-3 sm:mb-4 text-sm sm:text-base space-y-1">
+                  <li>SCIP &ndash; Your centralized portal for financial and administrative functions</li>
+                  <li>SOPs &ndash; Standard Operating Procedures for day-to-day reference</li>
+                  <li>Onboarding Guide &ndash; A step-by-step manual to welcome and orient new members</li>
+                </ul>
+                <h3 className="text-base sm:text-lg font-semibold mb-2">Coming Soon</h3>
+                <ul className="list-disc list-inside mb-3 sm:mb-4 text-sm sm:text-base">
+                  <li>Unofficial Policy Chatbot &ndash; An interactive tool designed to answer your questions about claims and travel entitlements, referencing the CFTDTI and NJC websites</li>
+                </ul>
+                <h3 className="text-base sm:text-lg font-semibold mb-2">Privacy & Contact</h3>
+                <p className="mb-3 sm:mb-4 text-sm sm:text-base">
+                  For privacy concerns, please use the Contact button or refer to our Privacy Policy. Your feedback is always welcome, and we look forward to improving your administrative experience.
+                </p>
+                <p className="text-xs sm:text-sm text-[var(--text-secondary)]">
+                  Disclaimer: This page is not supported by the Defence Wide Area Network (DWAN).
+                </p>
+              </div>
+              <div className="p-4 sm:p-6 border-t border-[var(--border)] bg-[var(--background-secondary)] rounded-b-xl">
+                <button
+                  onClick={() => setShowAboutModal(false)}
+                  className="w-full px-4 py-2 sm:py-3 text-center text-sm sm:text-base text-[var(--text)] bg-[var(--card)] hover:bg-[var(--primary)] hover:text-white rounded-lg transition-colors duration-200 h-10 sm:h-12"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
+import { AnimatedButton } from '../components/ui/animated-button';
+import { EnhancedBackButton } from '../components/ui/enhanced-back-button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Checkbox } from '../components/ui/checkbox';
 import { toast } from 'sonner';
-import { Brain, ArrowLeft, CheckCircle, Globe, Loader2, Trash2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Brain, CheckCircle, Globe, Loader2, Trash2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Skeleton, SkeletonText } from '../components/ui/skeleton';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -322,21 +325,19 @@ export default function ConfigPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="container mx-auto py-8 px-4">
+      {/* Animated Background */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-0 right-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl animate-float-slow" />
+        <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl animate-float-slow delay-1000" />
+      </div>
+      
+      <div className="container mx-auto py-8 px-4 relative z-10">
         <div className="mb-8">
           <div className="flex items-center gap-4 mb-4">
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => window.location.href = '/chat'}
-              className="flex items-center gap-2 hover:bg-muted"
-            >
-              <ArrowLeft size={16} />
-              Back to Chat
-            </Button>
+            <EnhancedBackButton to="/chat" label="Back to Chat" variant="minimal" />
           </div>
-          <h1 className="text-3xl font-bold text-foreground mb-2">Configuration</h1>
-          <p className="text-muted-foreground">
+          <h1 className="h1 text-fluid-4xl font-bold text-foreground mb-2 bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent animate-fade-up">Configuration</h1>
+          <p className="body-lg text-muted-foreground animate-fade-up delay-100">
             Configure your chat assistant settings.
           </p>
         </div>
@@ -357,8 +358,8 @@ export default function ConfigPage() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="model" className="space-y-4">
-            <Card>
+          <TabsContent value="model" className="space-y-4 animate-fade-up">
+            <Card className="glass border-border/50">
               <CardHeader>
                 <CardTitle>LLM Model Selection</CardTitle>
                 <CardDescription>
@@ -420,12 +421,12 @@ export default function ConfigPage() {
                       </p>
                     </div>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={handleResetModel}>
+                      <AnimatedButton variant="outline" size="sm" onClick={handleResetModel} ripple>
                         Reset
-                      </Button>
-                      <Button size="sm" onClick={handleSaveModel}>
+                      </AnimatedButton>
+                      <AnimatedButton size="sm" onClick={handleSaveModel} ripple>
                         Save Changes
-                      </Button>
+                      </AnimatedButton>
                     </div>
                   </div>
                 )}
@@ -447,8 +448,8 @@ export default function ConfigPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="ingestion" className="space-y-4">
-            <Card>
+          <TabsContent value="ingestion" className="space-y-4 animate-fade-up">
+            <Card className="glass border-border/50">
               <CardHeader>
                 <CardTitle>URL Ingestion</CardTitle>
                 <CardDescription>
@@ -473,9 +474,10 @@ export default function ConfigPage() {
                         }}
                         disabled={isIngesting}
                       />
-                      <Button
+                      <AnimatedButton
                         onClick={handleIngestURL}
                         disabled={isIngesting || !urlInput.trim()}
+                        ripple
                       >
                         {isIngesting ? (
                           <>
@@ -485,7 +487,7 @@ export default function ConfigPage() {
                         ) : (
                           'Ingest URL'
                         )}
-                      </Button>
+                      </AnimatedButton>
                     </div>
                     <div className="flex items-center space-x-2">
                       <Checkbox
@@ -576,8 +578,8 @@ export default function ConfigPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="database" className="space-y-4">
-            <Card>
+          <TabsContent value="database" className="space-y-4 animate-fade-up">
+            <Card className="glass border-border/50">
               <CardHeader>
                 <CardTitle>Database Management</CardTitle>
                 <CardDescription>
@@ -590,29 +592,36 @@ export default function ConfigPage() {
                   <div className="p-4 border rounded-lg">
                     <div className="flex items-center justify-between mb-3">
                       <h4 className="text-sm font-medium">Database Statistics</h4>
-                      <Button
+                      <AnimatedButton
                         variant="ghost"
                         size="sm"
                         onClick={loadDatabaseStats}
                         disabled={isLoadingStats}
+                        ripple
                       >
                         <RefreshCw className={`h-4 w-4 ${isLoadingStats ? 'animate-spin' : ''}`} />
-                      </Button>
+                      </AnimatedButton>
                     </div>
                     {isLoadingStats ? (
-                      <div className="flex items-center justify-center py-4">
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-4">
+                          <Skeleton className="h-16 rounded-lg" />
+                          <Skeleton className="h-16 rounded-lg" />
+                        </div>
+                        <div className="space-y-2">
+                          <SkeletonText lines={3} />
+                        </div>
                       </div>
                     ) : databaseStats ? (
                       <div className="space-y-3">
                         <div className="grid grid-cols-2 gap-4">
-                          <div className="p-3 bg-muted rounded-lg">
+                          <div className="p-3 bg-muted/50 rounded-lg glass-sm">
                             <p className="text-xs text-muted-foreground">Total Documents</p>
-                            <p className="text-lg font-semibold">{databaseStats.total_documents}</p>
+                            <p className="text-lg font-semibold animate-scale-in">{databaseStats.total_documents}</p>
                           </div>
-                          <div className="p-3 bg-muted rounded-lg">
+                          <div className="p-3 bg-muted/50 rounded-lg glass-sm">
                             <p className="text-xs text-muted-foreground">Total Chunks</p>
-                            <p className="text-lg font-semibold">{databaseStats.total_chunks}</p>
+                            <p className="text-lg font-semibold animate-scale-in">{databaseStats.total_chunks}</p>
                           </div>
                         </div>
                         
@@ -678,10 +687,11 @@ export default function ConfigPage() {
                     </div>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button 
+                        <AnimatedButton 
                           variant="destructive" 
                           size="sm"
                           disabled={isPurging}
+                          ripple
                         >
                           {isPurging ? (
                             <>
@@ -694,7 +704,7 @@ export default function ConfigPage() {
                               Purge Database
                             </>
                           )}
-                        </Button>
+                        </AnimatedButton>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>

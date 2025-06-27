@@ -221,7 +221,7 @@ class TravelContextualCompressor(BaseComponent):
                 docs = docs[:limit]
             
             # Log compression results
-            self.log_event("compression_completed", {
+            self._log_event("compression_completed", {
                 "query": query,
                 "input_docs": len(docs),  # This is after compression
                 "compression_mode": self.config.mode.value,
@@ -343,7 +343,7 @@ class QueryAwareCompressor(TravelContextualCompressor):
         
         try:
             # Log query analysis
-            self.log_event("query_analyzed", {
+            self._log_event("query_analyzed", {
                 "query": query,
                 "query_type": query_type,
                 "compression_mode": self.config.mode.value

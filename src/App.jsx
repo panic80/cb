@@ -13,7 +13,9 @@ const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
 const ChatPage = lazy(() => import('./pages/ChatPage'));
 const LoadingDebugPage = lazy(() => import('./pages/LoadingDebugPage'));
 const OPIPage = lazy(() => import('./pages/OPIPage'));
+const AdminToolsPage = lazy(() => import('./pages/AdminToolsPage'));
 const ConfigPage = lazy(() => import('./pages/ConfigPage'));
+const UIShowcase = lazy(() => import('./components/UIShowcase'));
 
 // Prefetch components
 const prefetchComponent = (importFn) => {
@@ -139,6 +141,11 @@ function App() {
                 <OPIPage />
               </Suspense>
             } />
+            <Route path="/admin-tools" element={
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
+                <AdminToolsPage />
+              </Suspense>
+            } />
             <Route
               path="/chat"
               element={
@@ -175,6 +182,11 @@ function App() {
             <Route path="/loading-debug" element={
               <Suspense fallback={<div className="min-h-screen bg-background" />}>
                 <LoadingDebugPage />
+              </Suspense>
+            } />
+            <Route path="/ui-showcase" element={
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
+                <UIShowcase />
               </Suspense>
             } />
           </Routes>

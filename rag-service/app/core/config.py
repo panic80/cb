@@ -103,13 +103,13 @@ settings = Settings()
 
 # Override with environment variables
 if os.getenv("OPENAI_API_KEY"):
-    settings.openai_api_key = os.getenv("OPENAI_API_KEY")
+    settings.openai_api_key = os.getenv("OPENAI_API_KEY").strip()
     
 if os.getenv("VITE_GEMINI_API_KEY"):
-    settings.google_api_key = os.getenv("VITE_GEMINI_API_KEY")
+    settings.google_api_key = os.getenv("VITE_GEMINI_API_KEY").strip()
     
 if os.getenv("ANTHROPIC_API_KEY"):
-    settings.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+    settings.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY").strip()
     
 if os.getenv("REDIS_URL"):
     settings.redis_url = os.getenv("REDIS_URL")

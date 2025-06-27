@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +24,14 @@ interface SourcesDisplayProps {
 export const SourcesDisplay: React.FC<SourcesDisplayProps> = ({ sources, className = '' }) => {
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
   const [showAll, setShowAll] = useState(false);
+
+  // Initialize all sources as expanded by default
+  useEffect(() => {
+    if (sources && sources.length > 0) {
+      const allSourceIds = new Set(sources.map(source => source.id));
+      setExpandedSources(allSourceIds);
+    }
+  }, [sources]);
 
   if (!sources || sources.length === 0) {
     return null;

@@ -12,6 +12,7 @@ import httpx
 
 from app.core.logging import get_logger
 from app.models.documents import DocumentType
+from app.utils.table_validator import TableValidator, TableStructure
 
 logger = get_logger(__name__)
 
@@ -168,53 +169,134 @@ class TableAwareWebLoader:
         return best_container
     
     def _extract_table_documents(self, table: Tag, section: Optional[str]) -> List[Document]:
-        """Extract table as structured documents."""
+        """Extract table as structured documents with enhanced validation."""
         documents = []
         
-        # Try to find table caption or title
-        caption = table.find("caption")
-        table_title = caption.get_text(strip=True) if caption else None
-        
-        # If no caption, try to find preceding header
-        if not table_title:
-            prev = table.find_previous_sibling(["h1", "h2", "h3", "h4", "h5", "p"])
-            if prev and prev.name.startswith("h"):
-                table_title = prev.get_text(strip=True)
-        
-        # Extract table data
-        headers = []
-        rows = []
-        
-        # Extract headers
-        header_row = table.find("thead")
-        if header_row:
-            for th in header_row.find_all("th"):
-                headers.append(th.get_text(strip=True))
-        else:
-            # Try first row
-            first_row = table.find("tr")
-            if first_row:
-                ths = first_row.find_all("th")
-                if ths:
-                    headers = [th.get_text(strip=True) for th in ths]
-                else:
-                    # Check if first row looks like headers
-                    tds = first_row.find_all("td")
-                    if tds and all(td.get_text(strip=True).replace(" ", "").isalpha() for td in tds[:3]):
-                        headers = [td.get_text(strip=True) for td in tds]
-        
-        # Extract data rows
-        tbody = table.find("tbody") or table
-        for tr in tbody.find_all("tr"):
-            cells = []
-            for td in tr.find_all(["td", "th"]):
-                cells.append(td.get_text(strip=True))
-            if cells and len(cells) > 1:  # Skip empty or single-cell rows
-                rows.append(cells)
-        
-        # Remove header row from data if it was included
-        if rows and headers and rows[0] == headers:
-            rows = rows[1:]
+        try:
+            # Try to find table caption or title
+            caption = table.find("caption")
+            table_title = caption.get_text(strip=True) if caption else None
+            
+            # If no caption, try to find preceding header
+            if not table_title:
+                prev = table.find_previous_sibling(["h1", "h2", "h3", "h4", "h5", "p"])
+                if prev and prev.name.startswith("h"):
+                    table_title = prev.get_text(strip=True)
+            
+            # Extract all rows for validation
+            all_rows = []
+            for tr in table.find_all("tr"):
+                cells = []
+                for cell in tr.find_all(["td", "th"]):
+                    cells.append(cell.get_text(strip=True))
+                if cells:
+                    all_rows.append(cells)
+            
+            if not all_rows:
+                return documents
+            
+            # Validate and structure the table
+            table_structure = TableValidator.validate_table_structure(all_rows)
+            if table_title:
+                table_structure.title = table_title
+            
+            # Handle large tables by chunking
+            table_chunks = TableValidator.chunk_large_table(table_structure)
+            
+            for chunk in table_chunks:
+                # Generate multiple representations for each chunk
+                
+                # 1. Enhanced markdown with full context
+                documents.append(Document(
+                    page_content=chunk.to_markdown(),
+                    metadata={
+                        "table_title": chunk.title or "Table",
+                        "section": section,
+                        "content_type": "table_markdown",
+                        "num_rows": len(chunk.rows),
+                        "num_columns": len(chunk.headers),
+                        "headers": chunk.headers,
+                        "is_continuation": chunk.metadata.get('is_continuation', False) if chunk.metadata else False
+                    }
+                ))
+                
+                # 2. Structured JSON for complex queries
+                json_content = json.dumps(chunk.to_json(), indent=2)
+                documents.append(Document(
+                    page_content=json_content,
+                    metadata={
+                        "table_title": chunk.title or "Table",
+                        "section": section,
+                        "content_type": "table_json",
+                        "headers": chunk.headers,
+                    }
+                ))
+                
+                # 3. Key-value pairs for exact matching
+                kv_pairs = chunk.to_key_value_pairs()
+                for pair in kv_pairs:
+                    documents.append(Document(
+                        page_content=f"{pair['key']}: {pair['value']} (in {pair['table_title']})",
+                        metadata={
+                            "table_title": pair['table_title'],
+                            "section": section,
+                            "content_type": "table_key_value",
+                            "key": pair['key'],
+                            "value": pair['value'],
+                            "row_context": pair['row_context']
+                        }
+                    ))
+                
+                # 4. Natural language summary
+                summary = TableValidator.generate_table_summary(chunk)
+                documents.append(Document(
+                    page_content=summary,
+                    metadata={
+                        "table_title": chunk.title or "Table",
+                        "section": section,
+                        "content_type": "table_summary",
+                        "headers": chunk.headers,
+                    }
+                ))
+            
+            return documents
+            
+        except Exception as e:
+            logger.warning(f"Error in enhanced table extraction: {e}")
+            # Fallback to original extraction
+            headers = []
+            rows = []
+            
+            # Extract headers
+            header_row = table.find("thead")
+            if header_row:
+                for th in header_row.find_all("th"):
+                    headers.append(th.get_text(strip=True))
+            else:
+                # Try first row
+                first_row = table.find("tr")
+                if first_row:
+                    ths = first_row.find_all("th")
+                    if ths:
+                        headers = [th.get_text(strip=True) for th in ths]
+                    else:
+                        # Check if first row looks like headers
+                        tds = first_row.find_all("td")
+                        if tds and all(td.get_text(strip=True).replace(" ", "").isalpha() for td in tds[:3]):
+                            headers = [td.get_text(strip=True) for td in tds]
+            
+            # Extract data rows
+            tbody = table.find("tbody") or table
+            for tr in tbody.find_all("tr"):
+                cells = []
+                for td in tr.find_all(["td", "th"]):
+                    cells.append(td.get_text(strip=True))
+                if cells and len(cells) > 1:  # Skip empty or single-cell rows
+                    rows.append(cells)
+            
+            # Remove header row from data if it was included
+            if rows and headers and rows[0] == headers:
+                rows = rows[1:]
         
         # Create different document formats for better retrieval
         
@@ -293,17 +375,60 @@ class TableAwareWebLoader:
             lines.append(f"Table: {title}")
             lines.append("")
         
+        # Detect if this is a meal allowance table
+        is_meal_table = self._is_meal_table(headers, title)
+        
         # For each row, create key-value pairs
         for row in rows:
             if len(row) >= 2:  # Need at least 2 columns
-                # First column as key, rest as values
+                # First column as key (usually location/category)
                 key = row[0]
                 if key:  # Skip empty keys
-                    for i, header in enumerate(headers[1:], 1):
-                        if i < len(row) and row[i]:
-                            lines.append(f"{key} - {header}: {row[i]}")
+                    # Create pairs for each column
+                    for i, header in enumerate(headers):
+                        if i < len(row) and row[i] and i > 0:  # Skip the key column itself
+                            value = row[i]
+                            
+                            # For meal tables, create multiple representations
+                            if is_meal_table:
+                                # Standard format: "Location - Meal Type: Amount"
+                                lines.append(f"{key} - {header}: {value}")
+                                
+                                # Additional formats for better matching
+                                if "$" in value:
+                                    # "Location Meal Type rate: Amount"
+                                    lines.append(f"{key} {header} rate: {value}")
+                                    # "Meal Type in Location: Amount"
+                                    lines.append(f"{header} in {key}: {value}")
+                                    # Just the key facts
+                                    lines.append(f"{key} {header} {value}")
+                            else:
+                                # Standard format for non-meal tables
+                                lines.append(f"{key} - {header}: {value}")
+        
+        # Add header summary for meal tables
+        if is_meal_table and headers:
+            lines.append("")
+            lines.append(f"Table columns: {', '.join(headers)}")
         
         return "\n".join(lines)
+    
+    def _is_meal_table(self, headers: List[str], title: Optional[str]) -> bool:
+        """Detect if this is a meal allowance table."""
+        # Check title
+        if title:
+            title_lower = title.lower()
+            if any(term in title_lower for term in ["meal", "breakfast", "lunch", "dinner", "per meal", "food"]):
+                return True
+        
+        # Check headers
+        if headers:
+            headers_lower = [h.lower() for h in headers]
+            meal_indicators = ["breakfast", "lunch", "dinner", "meal"]
+            if sum(1 for h in headers_lower if any(m in h for m in meal_indicators)) >= 2:
+                return True
+        
+        return False
     
     def _create_json_content(self, headers: List[str], rows: List[List[str]], title: Optional[str]) -> str:
         """Create JSON representation of table."""

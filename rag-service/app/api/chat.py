@@ -10,7 +10,7 @@ import uuid
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -18,8 +18,7 @@ from app.models.query import (
     ChatRequest, ChatResponse, FollowUpRequest, 
     FollowUpResponse, FollowUpQuestion, Provider
 )
-from app.pipelines.improved_retrieval import ImprovedRetrievalPipeline
-from app.pipelines.parallel_retrieval import create_parallel_pipeline
+from app.pipelines.enhanced_retrieval import EnhancedRetrievalPipeline
 from app.pipelines.query_optimizer import QueryOptimizer
 from app.services.cache import QueryCache
 from app.services.advanced_cache import AdvancedCacheService, create_context_hash
@@ -27,6 +26,11 @@ from app.services.performance_monitor import get_performance_monitor
 from app.utils.langchain_utils import RetryableLLM, handle_llm_error
 from app.api.streaming import create_streaming_response
 from app.components.result_processor import ResultProcessor
+from app.components.ensemble_retriever import WeightedEnsembleRetriever
+from app.components.contextual_compressor import TravelContextualCompressor
+from app.components.reranker import CrossEncoderReranker
+from app.components.table_query_rewriter import TableQueryRewriter
+from app.services.llm_pool import LLMPool
 
 logger = get_logger(__name__)
 
@@ -43,6 +47,10 @@ def get_llm(provider: Provider, model: Optional[str] = None):
         if not settings.openai_api_key:
             raise ValueError("OpenAI API key not configured")
         
+        # Log API key info for debugging
+        logger.info(f"OpenAI API key starts with: {settings.openai_api_key[:10]}...")
+        logger.info(f"OpenAI API key length: {len(settings.openai_api_key)}")
+        
         # Check if it's an O-series reasoning model
         model_name = model or settings.openai_chat_model
         is_o_series = (model_name and (
@@ -53,20 +61,26 @@ def get_llm(provider: Provider, model: Optional[str] = None):
         ))
         
         # O-series models don't support temperature parameter
-        if is_o_series:
-            logger.info(f"Using O-series model {model_name}, temperature parameter disabled")
-            llm = ChatOpenAI(
-                api_key=settings.openai_api_key,
-                model=model_name,
-                max_tokens=8192  # O-series models require max_tokens
-            )
-        else:
-            llm = ChatOpenAI(
-                api_key=settings.openai_api_key,
-                model=model_name,
-                temperature=0.7
-            )
-        return RetryableLLM(llm)
+        try:
+            if is_o_series:
+                logger.info(f"Using O-series model {model_name}, temperature parameter disabled")
+                llm = ChatOpenAI(
+                    api_key=settings.openai_api_key,
+                    model=model_name,
+                    max_tokens=8192  # O-series models require max_tokens
+                )
+            else:
+                logger.info(f"Creating OpenAI LLM for model: {model_name}")
+                llm = ChatOpenAI(
+                    api_key=settings.openai_api_key,
+                    model=model_name,
+                    temperature=0.7
+                )
+            logger.info(f"Successfully created OpenAI LLM for model: {model_name}")
+            return RetryableLLM(llm)
+        except Exception as e:
+            logger.error(f"Failed to create OpenAI LLM: {type(e).__name__}: {str(e)}")
+            raise
         
     elif provider == Provider.GOOGLE:
         if not settings.google_api_key:
@@ -81,10 +95,25 @@ def get_llm(provider: Provider, model: Optional[str] = None):
     elif provider == Provider.ANTHROPIC:
         if not settings.anthropic_api_key:
             raise ValueError("Anthropic API key not configured")
+        
+        # Check if this is Claude Sonnet 4 and enable thinking mode
+        model_name = model or settings.anthropic_chat_model
+        extra_kwargs = {}
+        
+        if model_name == "claude-sonnet-4-20250514":
+            # Enable extended thinking for Claude Sonnet 4
+            # Note: thinking parameter is not directly supported by langchain-anthropic yet
+            # We'll need to use the beta API directly or wait for langchain support
+            logger.info(f"Claude Sonnet 4 detected - thinking mode requires direct API usage")
+            # For now, use standard settings
+            temperature = 1.0
+        else:
+            temperature = 0.7
+        
         llm = ChatAnthropic(
             api_key=settings.anthropic_api_key,
-            model=model or settings.anthropic_chat_model,
-            temperature=0.7
+            model=model_name,
+            temperature=temperature
         )
         return RetryableLLM(llm)
         
@@ -164,12 +193,71 @@ async def chat(request: Request, chat_request: ChatRequest) -> ChatResponse:
                         optimized_query = expanded_queries[0]
                         logger.info(f"Query optimized: '{chat_request.message}' -> '{optimized_query}'")
             
-            # Use parallel retrieval pipeline
-            retrieval_pipeline = await asyncio.to_thread(
-                create_parallel_pipeline,
-                vector_store_manager=vector_store,
-                llm=llm
+            # Create components for EnhancedRetrievalPipeline
+            logger.info("Creating EnhancedRetrievalPipeline components...")
+            
+            # Get embeddings from vector store
+            embeddings = vector_store.embeddings
+            
+            # Debug logging for vector store
+            logger.info(f"VectorStoreManager type: {type(vector_store)}")
+            logger.info(f"VectorStoreManager.vector_store: {type(vector_store.vector_store) if hasattr(vector_store, 'vector_store') else 'No vector_store attribute'}")
+            logger.info(f"VectorStoreManager.vector_store is None: {vector_store.vector_store is None if hasattr(vector_store, 'vector_store') else 'N/A'}")
+            
+            # Create ensemble retriever with multiple retrievers
+            base_retriever = vector_store.get_retriever(
+                search_kwargs={
+                    "search_type": "similarity",
+                    "k": settings.max_chunks_per_query * 2
+                }
             )
+            
+            # Debug logging for retriever
+            logger.info(f"base_retriever type: {type(base_retriever)}")
+            logger.info(f"base_retriever is None: {base_retriever is None}")
+            
+            # Create weighted ensemble retriever
+            if base_retriever is None:
+                logger.error("base_retriever is None! This will cause issues.")
+                raise ValueError("Failed to create retriever from vector store")
+            
+            logger.info(f"Creating WeightedEnsembleRetriever with base_retriever: {type(base_retriever)}")
+            ensemble_retriever = WeightedEnsembleRetriever(
+                retrievers=[base_retriever],
+                weights=[1.0]
+            )
+            logger.info(f"WeightedEnsembleRetriever created successfully")
+            
+            # Create contextual compressor
+            compressor = TravelContextualCompressor(
+                base_retriever=ensemble_retriever,
+                llm=llm.llm if hasattr(llm, 'llm') else llm,
+                embeddings=embeddings
+            )
+            
+            # Create reranker
+            reranker = CrossEncoderReranker()
+            
+            # Table query rewriter
+            table_rewriter = TableQueryRewriter(
+                llm=llm.llm if hasattr(llm, 'llm') else llm
+            )
+            
+            # Get LLM pool from app state
+            llm_pool = getattr(app.state, "llm_pool", None) or LLMPool()
+            
+            # Create enhanced retrieval pipeline
+            retrieval_pipeline = EnhancedRetrievalPipeline(
+                retriever=ensemble_retriever,
+                compressor=compressor,
+                reranker=reranker,
+                processor=result_processor,
+                table_rewriter=table_rewriter,
+                cache_service=cache_service,
+                llm_pool=llm_pool
+            )
+            
+            logger.info("EnhancedRetrievalPipeline created successfully")
         
         # Generate conversation ID if not provided
         conversation_id = chat_request.conversation_id or str(uuid.uuid4())
@@ -181,12 +269,48 @@ async def chat(request: Request, chat_request: ChatRequest) -> ChatResponse:
         if chat_request.use_rag:
             logger.info("Retrieving context for query")
             
-            # Use improved retrieval
+            # Use enhanced retrieval
             if retrieval_pipeline:
-                results = await retrieval_pipeline.retrieve(
-                    query=chat_request.message,
-                    k=settings.max_chunks_per_query
+                # Use optimized query if available
+                query = optimized_query if optimized_query != chat_request.message else chat_request.message
+                
+                # Build conversation history format for the pipeline
+                conversation_history = []
+                if chat_request.chat_history:
+                    for msg in chat_request.chat_history:
+                        conversation_history.append({
+                            "role": msg.role,
+                            "content": msg.content
+                        })
+                
+                # Retrieve using enhanced pipeline
+                retrieval_result = await retrieval_pipeline.retrieve(
+                    query=query,
+                    conversation_history=conversation_history
                 )
+                
+                # Extract documents and context from the result
+                if retrieval_result.get("answer"):
+                    # Pipeline already generated an answer, but we'll regenerate with our prompts
+                    logger.info("EnhancedRetrievalPipeline provided synthesized answer")
+                
+                # Convert sources to documents for context building
+                results = []
+                if retrieval_result.get("sources"):
+                    for i, source in enumerate(retrieval_result["sources"]):
+                        # Create a document from the source
+                        from langchain_core.documents import Document
+                        doc = Document(
+                            page_content=source.get("title", "") + "\n" + source.get("page_content", ""),
+                            metadata=source
+                        )
+                        # Add score if available
+                        score = source.get("relevance_score", 0.8)
+                        results.append((doc, score))
+                else:
+                    # Fall back to empty results
+                    results = []
+                    logger.warning("No sources returned from EnhancedRetrievalPipeline")
             else:
                 # This shouldn't happen, but handle it gracefully
                 logger.error("Retrieval pipeline not initialized despite RAG being enabled")
@@ -328,8 +452,9 @@ CRITICAL: When answering questions about rates, allowances, or tables:
             for msg in chat_request.chat_history:
                 if msg.role == "user":
                     messages.append(HumanMessage(content=msg.content))
-                else:
-                    messages.append(SystemMessage(content=msg.content))
+                elif msg.role == "assistant":
+                    messages.append(AIMessage(content=msg.content))
+                # Skip system messages from history to avoid consecutive system messages
                 
         # Add context if available
         if context:
@@ -390,10 +515,27 @@ Please inform the user that no relevant information is available in the current 
         
         response = await llm.ainvoke(messages, **invoke_kwargs)
         
+        # Handle response content - it might be a string or a list of content blocks (for thinking mode)
+        if isinstance(response.content, str):
+            response_text = response.content
+        elif isinstance(response.content, list):
+            # Extract text content from thinking response blocks
+            response_text = ""
+            for block in response.content:
+                if hasattr(block, 'type') and block.type == 'text':
+                    response_text += block.text if hasattr(block, 'text') else str(block)
+                elif hasattr(block, 'type') and block.type == 'thinking':
+                    # Log thinking content but don't include in response
+                    logger.info(f"[THINKING] {getattr(block, 'thinking', 'No thinking content')}")
+                elif isinstance(block, str):
+                    response_text += block
+        else:
+            response_text = str(response.content)
+        
         # DIAGNOSTIC: Log response analysis
-        logger.info(f"[RESPONSE_DIAG] Response length: {len(response.content)}")
-        logger.info(f"[RESPONSE_DIAG] Response contains pipe chars: {'|' in response.content}")
-        logger.info(f"[RESPONSE_DIAG] Response contains markdown table indicators: {any(indicator in response.content for indicator in ['|', '---', '| ---'])}")
+        logger.info(f"[RESPONSE_DIAG] Response length: {len(response_text)}")
+        logger.info(f"[RESPONSE_DIAG] Response contains pipe chars: {'|' in response_text}")
+        logger.info(f"[RESPONSE_DIAG] Response contains markdown table indicators: {any(indicator in response_text for indicator in ['|', '---', '| ---'])}")
         
         # Calculate processing time
         processing_time = (datetime.utcnow() - start_time).total_seconds()
@@ -408,7 +550,7 @@ Please inform the user that no relevant information is available in the current 
                 tokens_used = response.usage_metadata.total_tokens
             
         return ChatResponse(
-            response=response.content,
+            response=response_text,
             sources=sources if chat_request.include_sources else [],
             conversation_id=conversation_id,
             model=chat_request.model or getattr(llm, 'model_name', 'unknown'),

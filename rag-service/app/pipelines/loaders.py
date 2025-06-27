@@ -44,6 +44,7 @@ from app.core.logging import get_logger
 from app.models.documents import DocumentType, DocumentMetadata
 from app.components.base import BaseComponent
 from app.pipelines.table_aware_loader import TableAwareWebLoader, UnstructuredTableLoader
+from app.utils.table_validator import TableValidator, TableStructure
 
 logger = get_logger(__name__)
 
@@ -177,27 +178,61 @@ class EnhancedWebLoader:
         return text.strip()
         
     def _extract_table(self, table) -> str:
-        """Extract table content as formatted text."""
-        rows = []
-        
-        # Extract headers
-        headers = []
-        for th in table.find_all("th"):
-            headers.append(th.get_text(strip=True))
+        """Extract table content with validation and structure preservation."""
+        try:
+            # Extract table title if present
+            title = None
+            caption = table.find("caption")
+            if caption:
+                title = caption.get_text(strip=True)
             
-        if headers:
-            rows.append(" | ".join(headers))
-            rows.append("-" * len(rows[0]))
+            # Look for preceding header
+            prev_sibling = table.find_previous_sibling(["h1", "h2", "h3", "h4", "h5", "h6"])
+            if prev_sibling and not title:
+                title = prev_sibling.get_text(strip=True)
             
-        # Extract data rows
-        for tr in table.find_all("tr"):
-            cells = []
-            for td in tr.find_all("td"):
-                cells.append(td.get_text(strip=True))
-            if cells:
-                rows.append(" | ".join(cells))
-                
-        return "\n".join(rows)
+            # Extract all rows
+            all_rows = []
+            
+            # First try to get headers from th elements
+            header_row = []
+            for th in table.find_all("th"):
+                header_row.append(th.get_text(strip=True))
+            
+            if header_row:
+                all_rows.append(header_row)
+            
+            # Extract data rows
+            for tr in table.find_all("tr"):
+                cells = []
+                # Check both td and th elements (some tables use th in data rows)
+                for cell in tr.find_all(["td", "th"]):
+                    cells.append(cell.get_text(strip=True))
+                if cells and cells != header_row:  # Avoid duplicate header row
+                    all_rows.append(cells)
+            
+            if not all_rows:
+                return ""
+            
+            # Validate and structure the table
+            table_structure = TableValidator.validate_table_structure(all_rows)
+            if title:
+                table_structure.title = title
+            
+            # Generate enhanced markdown representation
+            return table_structure.to_markdown()
+            
+        except Exception as e:
+            logger.warning(f"Error extracting table: {e}")
+            # Fallback to simple extraction
+            rows = []
+            for tr in table.find_all("tr"):
+                cells = []
+                for cell in tr.find_all(["td", "th"]):
+                    cells.append(cell.get_text(strip=True))
+                if cells:
+                    rows.append(" | ".join(cells))
+            return "\n".join(rows)
 
 
 class LangChainDocumentLoader(BaseComponent):
@@ -329,12 +364,8 @@ class LangChainDocumentLoader(BaseComponent):
             if is_gov_site and extract_tables:
                 logger.info(f"Loading government site with table extraction: {url}")
                 # Use table-aware loader for government sites
-                loader = TableAwareWebLoader(
-                    url=url,
-                    extract_tables=True,
-                    verify_ssl=False  # Gov sites sometimes have cert issues
-                )
-                documents = await loader.aload()
+                loader = TableAwareWebLoader(url=url, timeout=30)
+                documents = await loader.load()
             else:
                 # Use UnstructuredURLLoader for better content extraction
                 loader = UnstructuredURLLoader(

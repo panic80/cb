@@ -27,8 +27,8 @@ type SuggestionAction =
   | { type: 'CANCEL_TIMER' };
 
 const initialState: SuggestionState = {
-  phase: 'hidden',
-  isVisible: false,
+  phase: 'smart',  // Start with smart actions visible immediately
+  isVisible: true,
   timerId: null,
 };
 
@@ -170,103 +170,103 @@ const SuggestionController: React.FC<SuggestionControllerProps> = ({
     [questions, isLatestMessage]
   );
 
-  // Intersection observer for viewport tracking
-  useEffect(() => {
-    const element = observerRef.current;
-    if (!element) return;
+  // Intersection observer for viewport tracking - DISABLED to keep questions visible
+  // useEffect(() => {
+  //   const element = observerRef.current;
+  //   if (!element) return;
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          dispatch({ type: 'VIEWPORT_ENTER' });
-        } else {
-          dispatch({ type: 'VIEWPORT_EXIT' });
-          // Clear any pending timer when leaving viewport
-          if (timerRef.current) {
-            clearTimeout(timerRef.current);
-            timerRef.current = null;
-          }
-        }
-      },
-      {
-        threshold: 0.5, // Trigger when 50% visible
-        rootMargin: '0px 0px -20% 0px' // Only trigger when well within viewport
-      }
-    );
+  //   const observer = new IntersectionObserver(
+  //     ([entry]) => {
+  //       if (entry.isIntersecting) {
+  //         dispatch({ type: 'VIEWPORT_ENTER' });
+  //       } else {
+  //         dispatch({ type: 'VIEWPORT_EXIT' });
+  //         // Clear any pending timer when leaving viewport
+  //         if (timerRef.current) {
+  //           clearTimeout(timerRef.current);
+  //           timerRef.current = null;
+  //         }
+  //       }
+  //     },
+  //     {
+  //       threshold: 0.5, // Trigger when 50% visible
+  //       rootMargin: '0px 0px -20% 0px' // Only trigger when well within viewport
+  //     }
+  //   );
 
-    observer.observe(element);
+  //   observer.observe(element);
 
-    return () => {
-      observer.disconnect();
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-    };
-  }, []);
+  //   return () => {
+  //     observer.disconnect();
+  //     if (timerRef.current) {
+  //       clearTimeout(timerRef.current);
+  //     }
+  //   };
+  // }, []);
 
-  // Timer management for smart actions
-  useEffect(() => {
-    if (state.isVisible && state.phase === 'hidden' && smartActions.length > 0) {
-      // Start timer for smart actions
-      const delay = calculateDelay(100); // TODO: Get actual word count from message
+  // Timer management for smart actions - DISABLED to show questions immediately
+  // useEffect(() => {
+  //   if (state.isVisible && state.phase === 'hidden' && smartActions.length > 0) {
+  //     // Start timer for smart actions
+  //     const delay = calculateDelay(100); // TODO: Get actual word count from message
       
-      timerRef.current = window.setTimeout(() => {
-        dispatch({ type: 'SHOW_SMART_ACTIONS' });
-      }, delay);
-    }
+  //     timerRef.current = window.setTimeout(() => {
+  //       dispatch({ type: 'SHOW_SMART_ACTIONS' });
+  //     }, delay);
+  //   }
 
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [state.isVisible, state.phase, smartActions.length]);
+  //   return () => {
+  //     if (timerRef.current) {
+  //       clearTimeout(timerRef.current);
+  //       timerRef.current = null;
+  //     }
+  //   };
+  // }, [state.isVisible, state.phase, smartActions.length]);
 
-  // Enhanced timer management with pause/resume
-  useEffect(() => {
-    const handlePauseTimers = () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
+  // Enhanced timer management with pause/resume - DISABLED
+  // useEffect(() => {
+  //   const handlePauseTimers = () => {
+  //     if (timerRef.current) {
+  //       clearTimeout(timerRef.current);
+  //       timerRef.current = null;
+  //     }
+  //   };
 
-    const handleResumeTimers = () => {
-      if (state.isVisible && state.phase === 'hidden' && smartActions.length > 0) {
-        const delay = calculateDelay(100);
-        timerRef.current = window.setTimeout(() => {
-          dispatch({ type: 'SHOW_SMART_ACTIONS' });
-        }, delay);
-      }
-    };
+  //   const handleResumeTimers = () => {
+  //     if (state.isVisible && state.phase === 'hidden' && smartActions.length > 0) {
+  //       const delay = calculateDelay(100);
+  //       timerRef.current = window.setTimeout(() => {
+  //         dispatch({ type: 'SHOW_SMART_ACTIONS' });
+  //       }, delay);
+  //     }
+  //   };
 
-    window.addEventListener('suggestion-pause-timers', handlePauseTimers);
-    window.addEventListener('suggestion-resume-timers', handleResumeTimers);
+  //   window.addEventListener('suggestion-pause-timers', handlePauseTimers);
+  //   window.addEventListener('suggestion-resume-timers', handleResumeTimers);
 
-    return () => {
-      window.removeEventListener('suggestion-pause-timers', handlePauseTimers);
-      window.removeEventListener('suggestion-resume-timers', handleResumeTimers);
-    };
-  }, [state.isVisible, state.phase, smartActions.length]);
+  //   return () => {
+  //     window.removeEventListener('suggestion-pause-timers', handlePauseTimers);
+  //     window.removeEventListener('suggestion-resume-timers', handleResumeTimers);
+  //   };
+  // }, [state.isVisible, state.phase, smartActions.length]);
 
-  // Cancel timers on user interaction (exposed via global event)
-  useEffect(() => {
-    const handleUserInteraction = () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-        dispatch({ type: 'CANCEL_TIMER' });
-      }
-    };
+  // // Cancel timers on user interaction (exposed via global event)
+  // useEffect(() => {
+  //   const handleUserInteraction = () => {
+  //     if (timerRef.current) {
+  //       clearTimeout(timerRef.current);
+  //       timerRef.current = null;
+  //       dispatch({ type: 'CANCEL_TIMER' });
+  //     }
+  //   };
 
-    // Listen for global events that should cancel timers
-    window.addEventListener('suggestion-cancel-timers', handleUserInteraction);
+  //   // Listen for global events that should cancel timers
+  //   window.addEventListener('suggestion-cancel-timers', handleUserInteraction);
     
-    return () => {
-      window.removeEventListener('suggestion-cancel-timers', handleUserInteraction);
-    };
-  }, []);
+  //   return () => {
+  //     window.removeEventListener('suggestion-cancel-timers', handleUserInteraction);
+  //   };
+  // }, []);
 
   if (!questions || questions.length === 0) {
     return null;
@@ -275,7 +275,7 @@ const SuggestionController: React.FC<SuggestionControllerProps> = ({
   return (
     <div
       ref={observerRef}
-      className={cn("mt-3", className)}
+      className={cn("mt-4 mb-4", className)}
       style={{ minHeight: state.phase !== 'hidden' ? '40px' : '0px' }}
     >
       {/* ARIA live region for accessibility */}
@@ -302,7 +302,7 @@ const SuggestionController: React.FC<SuggestionControllerProps> = ({
                   question={question}
                   onClick={onQuestionClick}
                   index={index}
-                  className="flex-shrink-0"
+                  className=""
                 />
               ))}
             </div>

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from app.components.base import BaseComponent
 from app.core.logging import get_logger
 from app.utils.retry import with_retry_async
+from app.utils.table_validator import TableValidator
 
 logger = get_logger(__name__)
 
@@ -37,17 +38,29 @@ Your task is to rewrite queries to better find information in tables.
 Original Query: {query}
 
 Consider that travel documents often contain tables with:
-- Meal allowances by location
-- Kilometric rates by province
+- Meal allowances by location (breakfast, lunch, dinner rates)
+- Kilometric rates by province (cents per km)
 - Per diem rates by city
-- Accommodation limits
+- Accommodation limits and hotel rates
 - Travel time calculations
+- Expense categories and limits
+
+Common table headers include:
+- Location, Province, City, Region
+- Rate, Amount, Limit, Maximum
+- Breakfast, Lunch, Dinner, Meals
+- Kilometric, Per km, Mileage
+- Daily, Per diem, Allowance
 
 Rewrite the query to:
-1. Include table-specific keywords (rate, table, schedule, appendix)
-2. Extract specific values or ranges being searched for
+1. Include table-specific keywords (rate, table, schedule, appendix, limit)
+2. Extract and preserve exact numeric values (e.g., "62.5 cents/km")
 3. Add relevant location or category terms
-4. Include both singular and plural forms
+4. Include variations of key terms (e.g., "kilometer" → "km", "kilometre")
+5. Add context words that often appear near tables
+
+IMPORTANT: If the query asks for a specific value (like "Ontario kilometric rate"), 
+ensure the rewritten query includes both the location AND the type of rate.
 
 {format_instructions}
 
@@ -148,33 +161,62 @@ class TableQueryRewriter(BaseComponent):
         """
         query_lower = query.lower()
         
-        # Common table-related queries
+        # Common table-related queries with enhanced patterns
         patterns = {
-            r"meal.*(?:rate|allowance).*(\w+)": {
-                "keywords": ["meal", "rate", "table", "allowance", "breakfast", "lunch", "dinner"],
-                "template": "meal allowance rate table {location}"
+            r"meal.*(?:rate|allowance).*?(?:in|for)?\s*(\w+(?:\s+\w+)?)": {
+                "keywords": ["meal", "rate", "table", "allowance", "breakfast", "lunch", "dinner", "food", "$", "dollar", "amount"],
+                "template": "meal allowance rate table {location} breakfast lunch dinner dollar amounts"
             },
-            r"(?:kilometric|km|mileage).*rate": {
-                "keywords": ["kilometric", "rate", "table", "km", "per", "kilometer"],
-                "template": "kilometric rate table schedule mileage"
+            r"(?:show|what|give).*meal.*(?:table|rates?)": {
+                "keywords": ["meal", "table", "rate", "allowance", "breakfast", "lunch", "dinner", "$", "per meal"],
+                "template": "meal allowance table rates breakfast lunch dinner dollar amounts"
             },
-            r"per diem.*(\w+)": {
-                "keywords": ["per diem", "daily", "rate", "allowance", "table"],
-                "template": "per diem rate table {location}"
+            r"(?:breakfast|lunch|dinner).*(?:rate|cost|amount).*?(?:in|for)?\s*(\w+(?:\s+\w+)?)": {
+                "keywords": ["meal", "rate", "table", "allowance", "breakfast", "lunch", "dinner", "$", "amount"],
+                "template": "{location} meal rates breakfast lunch dinner table dollar amounts"
             },
-            r"(?:hotel|accommodation).*(?:limit|rate)": {
-                "keywords": ["accommodation", "hotel", "limit", "rate", "table", "maximum"],
-                "template": "accommodation hotel limit rate table"
+            r"(\w+(?:\s+\w+)?)\s*(?:kilometric|km|mileage).*rate": {
+                "keywords": ["kilometric", "rate", "table", "km", "per", "kilometer", "cents", "mileage"],
+                "template": "{location} kilometric rate table km cents per kilometer mileage"
+            },
+            r"(?:kilometric|km|mileage).*rate.*?(?:in|for)?\s*(\w+(?:\s+\w+)?)": {
+                "keywords": ["kilometric", "rate", "table", "km", "per", "kilometer", "cents"],
+                "template": "{location} kilometric rate table km cents per kilometer"
+            },
+            r"per diem.*?(?:in|for)?\s*(\w+(?:\s+\w+)?)": {
+                "keywords": ["per diem", "daily", "rate", "allowance", "table", "expenses"],
+                "template": "per diem daily rate table {location} allowance"
+            },
+            r"(?:hotel|accommodation).*(?:limit|rate).*?(?:in|for)?\s*(\w+(?:\s+\w+)?)": {
+                "keywords": ["accommodation", "hotel", "limit", "rate", "table", "maximum", "lodging"],
+                "template": "accommodation hotel limit rate table {location} maximum lodging"
+            },
+            r"what is the (\w+(?:\s+\w+)?)\s*(.*?)\s*rate": {
+                "keywords": ["rate", "table", "schedule", "amount", "value"],
+                "template": "{location} {rate_type} rate table schedule amount"
             }
         }
         
         for pattern, config in patterns.items():
             match = re.search(pattern, query_lower)
             if match:
-                # Extract location if present
-                location = match.group(1) if match.lastindex else ""
+                # Extract captured groups
+                template_vars = {}
+                if match.lastindex:
+                    if match.lastindex >= 1:
+                        template_vars["location"] = match.group(1) if match.group(1) else ""
+                    if match.lastindex >= 2:
+                        template_vars["rate_type"] = match.group(2) if match.group(2) else ""
                 
-                rewritten = config["template"].format(location=location)
+                # Format template with available variables
+                try:
+                    rewritten = config["template"].format(**template_vars)
+                except KeyError:
+                    # Fallback if template has missing variables
+                    rewritten = config["template"].format(location="", rate_type="")
+                
+                # Clean up extra spaces
+                rewritten = " ".join(rewritten.split())
                 
                 return {
                     "original_query": query,
@@ -267,8 +309,8 @@ class TableQueryRewriter(BaseComponent):
         
         # Detect query intent and add relevant keywords
         if any(word in query_lower for word in ["meal", "breakfast", "lunch", "dinner"]):
-            keywords.extend(["meal", "allowance", "rate", "food"])
-            additions.append("meal rate table")
+            keywords.extend(["meal", "allowance", "rate", "food", "$", "dollar", "amount", "per meal"])
+            additions.extend(["meal rate table", "dollar amounts", "breakfast lunch dinner"])
             
         if any(word in query_lower for word in ["hotel", "accommodation", "lodging"]):
             keywords.extend(["accommodation", "hotel", "limit", "rate"])
@@ -352,7 +394,7 @@ class TableQueryRewriter(BaseComponent):
     
     def _extract_value_patterns(self, query: str) -> List[str]:
         """
-        Extract value patterns from query.
+        Extract value patterns from query with enhanced numeric detection.
         
         Args:
             query: Query text
@@ -362,24 +404,50 @@ class TableQueryRewriter(BaseComponent):
         """
         patterns = []
         
-        # Dollar amounts
-        dollar_matches = re.findall(r'\$[\d,]+(?:\.\d{2})?', query)
-        patterns.extend(dollar_matches)
+        # Dollar amounts with various formats
+        dollar_patterns = [
+            r'\$[\d,]+(?:\.\d{2})?',  # $123.45 or $1,234
+            r'[\d,]+(?:\.\d{2})?\s*(?:dollars?|cents?)',  # 123.45 dollars
+            r'[\d,]+(?:\.\d{2})?\s*¢',  # 62.5¢
+        ]
+        for pattern in dollar_patterns:
+            matches = re.findall(pattern, query, re.IGNORECASE)
+            patterns.extend(matches)
         
         # Percentages
         percent_matches = re.findall(r'\d+(?:\.\d+)?%', query)
         patterns.extend(percent_matches)
         
-        # Distances
-        km_matches = re.findall(r'\d+\s*(?:km|kilometer|kilometre|miles?)', query)
-        patterns.extend(km_matches)
+        # Distances with various units
+        distance_patterns = [
+            r'\d+(?:\.\d+)?\s*(?:km|kilometer|kilometre)',
+            r'\d+(?:\.\d+)?\s*(?:miles?|mi)',
+            r'\d+(?:\.\d+)?\s*cents?/km',  # rates like "62.5 cents/km"
+        ]
+        for pattern in distance_patterns:
+            matches = re.findall(pattern, query, re.IGNORECASE)
+            patterns.extend(matches)
         
         # Time periods
-        time_matches = re.findall(r'\d+\s*(?:hours?|days?|weeks?|months?)', query)
+        time_matches = re.findall(r'\d+\s*(?:hours?|days?|weeks?|months?)', query, re.IGNORECASE)
         patterns.extend(time_matches)
         
         # Numeric ranges
         range_matches = re.findall(r'\d+\s*(?:to|-)\s*\d+', query)
         patterns.extend(range_matches)
         
-        return patterns
+        # Extract any numeric values that might be in tables
+        for word in query.split():
+            numeric_val = TableValidator.extract_numeric_value(word)
+            if numeric_val is not None:
+                patterns.append(word)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_patterns = []
+        for pattern in patterns:
+            if pattern not in seen:
+                seen.add(pattern)
+                unique_patterns.append(pattern)
+        
+        return unique_patterns

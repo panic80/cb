@@ -21,12 +21,91 @@ from app.api.streaming import StreamingCallbackHandler, RetrievalStreamingHandle
 from app.components.result_processor import StreamingResultProcessor
 from app.services.llm_pool import llm_pool
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_core.callbacks import AsyncCallbackManager
 
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+
+async def generate_follow_up_questions(
+    user_question: str,
+    ai_response: str,
+    llm,
+    sources: list = None
+) -> list:
+    """Generate contextual follow-up questions based on the conversation."""
+    try:
+        # Create a focused prompt for generating follow-up questions
+        prompt = f"""Based on this conversation, generate 2-3 relevant follow-up questions that would help the user learn more or get specific information.
+
+User Question: "{user_question}"
+AI Response: "{ai_response}"
+
+Generate follow-up questions that are:
+- Specific and actionable
+- Relevant to the context
+- Naturally conversational
+- Helpful for learning more
+
+Return ONLY a JSON array of question strings, like:
+["Question 1?", "Question 2?", "Question 3?"]
+
+Focus on:
+- Clarification questions for unclear aspects
+- Related topics that might be relevant
+- Practical application questions
+- Questions that explore deeper into the subject"""
+
+        # Use the existing LLM to generate questions
+        messages = [HumanMessage(content=prompt)]
+        
+        # Temporarily disable streaming for this request
+        original_streaming = getattr(llm, 'streaming', None)
+        if hasattr(llm, 'streaming'):
+            llm.streaming = False
+        
+        try:
+            response = await llm.ainvoke(messages)
+            
+            # Extract content from response
+            content = ""
+            if hasattr(response, 'content'):
+                content = response.content
+            elif isinstance(response, dict) and 'content' in response:
+                content = response['content']
+            elif isinstance(response, str):
+                content = response
+            
+            # Parse JSON array from response
+            import re
+            json_match = re.search(r'\[[\s\S]*?\]', content)
+            if json_match:
+                questions_array = json.loads(json_match.group())
+                
+                # Format as follow-up question objects
+                follow_up_questions = []
+                for idx, question in enumerate(questions_array[:3]):  # Limit to 3 questions
+                    follow_up_questions.append({
+                        "id": f"followup-{int(time.time() * 1000)}-{idx}",
+                        "question": question,
+                        "category": "related",  # You could enhance this with better categorization
+                        "confidence": 0.7
+                    })
+                
+                return follow_up_questions
+            
+        finally:
+            # Restore original streaming setting
+            if original_streaming is not None and hasattr(llm, 'streaming'):
+                llm.streaming = original_streaming
+        
+    except Exception as e:
+        logger.warning(f"Failed to generate follow-up questions: {e}")
+    
+    # Return empty list if generation fails
+    return []
 
 
 async def generate_sse_events(
@@ -104,7 +183,14 @@ async def generate_sse_events(
                 
                 # Configure LLM with streaming
                 llm.callbacks = callback_manager
-                llm.streaming = True
+                # Only set streaming for models that support it
+                if hasattr(llm, 'streaming'):
+                    llm.streaming = True
+                elif provider_enum == Provider.OPENAI:
+                    # OpenAI models support streaming even without the attribute
+                    pass
+                else:
+                    logger.warning(f"Model {provider_enum.value} may not support streaming properly")
                 
                 # Initialize result processor for streaming
                 result_processor = StreamingResultProcessor()
@@ -153,6 +239,10 @@ async def generate_sse_events(
                         # Send sources if available
                         if cached_response.get("sources"):
                             yield f"data: {json.dumps({'type': 'sources', 'sources': cached_response['sources']})}\n\n"
+                        
+                        # Send follow-up questions if available
+                        if cached_response.get("follow_up_questions"):
+                            yield f"data: {json.dumps({'type': 'metadata', 'follow_up_questions': cached_response['follow_up_questions']})}\n\n"
                         
                         # Complete event
                         yield f"data: {json.dumps({'type': 'complete'})}\n\n"
@@ -279,8 +369,9 @@ CRITICAL: When answering questions about rates, allowances, or tables:
                     for msg in chat_request.chat_history:
                         if msg.role == "user":
                             messages.append(HumanMessage(content=msg.content))
-                        else:
-                            messages.append(SystemMessage(content=msg.content))
+                        elif msg.role == "assistant":
+                            messages.append(AIMessage(content=msg.content))
+                        # Skip system messages from history to avoid consecutive system messages
                 
                 # Add context or current message
                 if context:
@@ -302,8 +393,21 @@ User Question: {chat_request.message}"""
                 async for chunk in llm.astream(messages):
                     # Handle different chunk types from different providers
                     content = None
+                    
+                    # Handle thinking mode chunks
                     if hasattr(chunk, 'content'):
-                        content = chunk.content
+                        if isinstance(chunk.content, str):
+                            content = chunk.content
+                        elif isinstance(chunk.content, list):
+                            # For thinking mode, extract text content
+                            for block in chunk.content:
+                                if hasattr(block, 'type') and block.type == 'text':
+                                    content = block.text if hasattr(block, 'text') else str(block)
+                                elif hasattr(block, 'type') and block.type == 'thinking':
+                                    # Log thinking but don't send to client
+                                    logger.debug(f"[THINKING] {getattr(block, 'thinking', '')}")
+                        else:
+                            content = str(chunk.content) if chunk.content else None
                     elif isinstance(chunk, dict) and 'content' in chunk:
                         content = chunk['content']
                     elif isinstance(chunk, str):
@@ -326,6 +430,21 @@ User Question: {chat_request.message}"""
                         if token_count % 10 == 0:
                             await asyncio.sleep(0.001)
                 
+                # Generate follow-up questions after full response is collected
+                follow_up_questions = []
+                if full_response:
+                    logger.info("Generating follow-up questions for streaming response")
+                    follow_up_questions = await generate_follow_up_questions(
+                        user_question=chat_request.message,
+                        ai_response=full_response,
+                        llm=llm,
+                        sources=sources
+                    )
+                    
+                    # Send metadata event with follow-up questions if any were generated
+                    if follow_up_questions:
+                        yield f"data: {json.dumps({'type': 'metadata', 'follow_up_questions': follow_up_questions})}\n\n"
+                
                 # Calculate final metrics
                 total_time = (datetime.utcnow() - start_time).total_seconds()
                 
@@ -342,11 +461,11 @@ User Question: {chat_request.message}"""
                         model=chat_request.model or "default"
                     )
                     
-                    # Cache the complete response
+                    # Cache the complete response with follow-up questions
                     await advanced_cache.set_response(
                         query=chat_request.message,
                         context_hash=context_hash,
-                        response={"response": full_response, "sources": sources},
+                        response={"response": full_response, "sources": sources, "follow_up_questions": follow_up_questions},
                         model=chat_request.model or "default"
                     )
                 
@@ -374,7 +493,14 @@ User Question: {chat_request.message}"""
             
             # Configure LLM with streaming
             llm.callbacks = callback_manager
-            llm.streaming = True
+            # Only set streaming for models that support it
+            if hasattr(llm, 'streaming'):
+                llm.streaming = True
+            elif chat_request.provider == Provider.OPENAI or chat_request.provider == "openai":
+                # OpenAI models support streaming even without the attribute
+                pass
+            else:
+                logger.warning(f"Model {chat_request.provider} may not support streaming properly")
             
             # Initialize result processor for streaming
             result_processor = StreamingResultProcessor()
@@ -423,6 +549,10 @@ User Question: {chat_request.message}"""
                     # Send sources if available
                     if cached_response.get("sources"):
                         yield f"data: {json.dumps({'type': 'sources', 'sources': cached_response['sources']})}\n\n"
+                    
+                    # Send follow-up questions if available
+                    if cached_response.get("follow_up_questions"):
+                        yield f"data: {json.dumps({'type': 'metadata', 'follow_up_questions': cached_response['follow_up_questions']})}\n\n"
                     
                     # Complete event
                     yield f"data: {json.dumps({'type': 'complete'})}\n\n"
@@ -549,8 +679,9 @@ CRITICAL: When answering questions about rates, allowances, or tables:
                 for msg in chat_request.chat_history:
                     if msg.role == "user":
                         messages.append(HumanMessage(content=msg.content))
-                    else:
-                        messages.append(SystemMessage(content=msg.content))
+                    elif msg.role == "assistant":
+                        messages.append(AIMessage(content=msg.content))
+                    # Skip system messages from history to avoid consecutive system messages
             
             # Add context or current message
             if context:
@@ -596,6 +727,21 @@ User Question: {chat_request.message}"""
                     if token_count % 10 == 0:
                         await asyncio.sleep(0.001)
             
+            # Generate follow-up questions after full response is collected
+            follow_up_questions = []
+            if full_response:
+                logger.info("Generating follow-up questions for streaming response (fallback)")
+                follow_up_questions = await generate_follow_up_questions(
+                    user_question=chat_request.message,
+                    ai_response=full_response,
+                    llm=llm,
+                    sources=sources
+                )
+                
+                # Send metadata event with follow-up questions if any were generated
+                if follow_up_questions:
+                    yield f"data: {json.dumps({'type': 'metadata', 'follow_up_questions': follow_up_questions})}\n\n"
+            
             # Calculate final metrics
             total_time = (datetime.utcnow() - start_time).total_seconds()
             
@@ -612,11 +758,11 @@ User Question: {chat_request.message}"""
                     model=chat_request.model or "default"
                 )
                 
-                # Cache the complete response
+                # Cache the complete response with follow-up questions
                 await advanced_cache.set_response(
                     query=chat_request.message,
                     context_hash=context_hash,
-                    response={"response": full_response, "sources": sources},
+                    response={"response": full_response, "sources": sources, "follow_up_questions": follow_up_questions},
                     model=chat_request.model or "default"
                 )
             

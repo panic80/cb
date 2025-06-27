@@ -2,6 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { getModelDisplayName, DEFAULT_MODEL_ID } from '../constants/models';
 import MarkdownRenderer from './ui/markdown-renderer';
+import { AnimatedButton } from './ui/animated-button';
+import { SkeletonChatMessage, SkeletonAvatar } from './ui/skeleton';
+import { cn } from '@/lib/utils';
 
 interface Source {
   text: string;
@@ -89,17 +92,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   return (
     <div className={`chat-interface ${className}`}>
       {/* Header */}
-      <div className="chat-header">
+      <div className="chat-header glass">
         <div className="header-content">
           <div className="avatar-container">
-            <div className="avatar assistant-avatar">
-              <span>CF</span>
+            <div className="avatar assistant-avatar bg-gradient-to-br from-primary to-primary/80 shadow-lg">
+              <span className="font-semibold">CF</span>
             </div>
-            <div className="status-dot"></div>
+            <div className="status-dot animate-pulse"></div>
           </div>
           <div className="header-info">
-            <h3 className="header-title">Chat Assistant</h3>
-            <p className="header-subtitle">
+            <h3 className="header-title text-fluid-lg font-semibold">Chat Assistant</h3>
+            <p className="header-subtitle caption text-muted-foreground">
               {isLoading ? 'Typing...' : 'Online'}
             </p>
           </div>
@@ -109,10 +112,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       {/* Messages */}
       <div className="messages-container">
         {messages.length === 0 && (
-          <div className="welcome-message">
-            <div className="welcome-content">
-              <h2>Welcome to Chat Interface</h2>
-              <p>This is a clean, professional chat interface for the Canadian Forces Travel Instructions Chatbot.</p>
+          <div className="welcome-message animate-fade-up">
+            <div className="welcome-content glass rounded-xl p-8">
+              <h2 className="h2 text-fluid-3xl mb-4 bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">Welcome to Chat Interface</h2>
+              <p className="body-lg text-muted-foreground">This is a clean, professional chat interface for the Canadian Forces Travel Instructions Chatbot.</p>
             </div>
           </div>
         )}
@@ -134,7 +137,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 </div>
               )}
               
-              <div className={`message-bubble ${isUser ? 'user-bubble' : 'assistant-bubble'}`}>
+              <div className={cn(
+                "message-bubble smooth-hover",
+                isUser ? "user-bubble bg-primary text-primary-foreground" : "assistant-bubble bg-muted",
+                "animate-fade-up"
+              )}>
                 <div className="message-content">
                   {message.sender === 'assistant' && message.isFormatted ? (
                     <MarkdownRenderer>{message.content}</MarkdownRenderer>
@@ -190,7 +197,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     </span>
                   )}
                   <button
-                    className="copy-button"
+                    className="copy-button p-1 hover:bg-muted rounded transition-all hover:scale-110"
                     onClick={() => copyToClipboard(message.content)}
                     title="Copy message"
                   >
@@ -221,11 +228,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 <span>CF</span>
               </div>
             </div>
-            <div className="message-bubble assistant-bubble">
+            <div className="message-bubble assistant-bubble bg-muted">
               <div className="typing-indicator">
-                <div className="typing-dot"></div>
-                <div className="typing-dot"></div>
-                <div className="typing-dot"></div>
+                <div className="typing-dot animate-typing-dot-bounce"></div>
+                <div className="typing-dot animate-typing-dot-bounce" style={{ animationDelay: '0.1s' }}></div>
+                <div className="typing-dot animate-typing-dot-bounce" style={{ animationDelay: '0.2s' }}></div>
               </div>
             </div>
           </div>
@@ -249,11 +256,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               rows={1}
             />
             
-            <button
-              className={`send-button ${(!inputValue.trim() || isLoading) ? 'disabled' : ''}`}
+            <AnimatedButton
+              className={cn(
+                "send-button",
+                (!inputValue.trim() || isLoading) ? 'opacity-50' : ''
+              )}
               onClick={handleSend}
               disabled={!inputValue.trim() || isLoading}
               title="Send message"
+              variant="default"
+              size="icon"
+              ripple
             >
               {isLoading ? (
                 <div className="loading-spinner">
@@ -267,13 +280,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   <polygon points="22,2 15,22 11,13 2,9 22,2"/>
                 </svg>
               )}
-            </button>
+            </AnimatedButton>
           </div>
         </div>
         
         {/* Powered by footer */}
         <div className="powered-by-footer">
-          <span>Powered by {currentModel}</span>
+          <span className="caption text-muted-foreground">Powered by {currentModel}</span>
         </div>
       </div>
     </div>

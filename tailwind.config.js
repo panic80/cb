@@ -74,15 +74,18 @@ export default {
   			foreground: 'var(--foreground)',
   			primary: {
   				DEFAULT: 'var(--primary)',
-  				foreground: 'var(--primary-foreground)'
+  				foreground: 'var(--primary-foreground)',
+  				hover: 'var(--primary-hover)',
+  				active: 'var(--primary-active)'
   			},
   			secondary: {
   				DEFAULT: 'var(--secondary, var(--background-secondary))',
   				foreground: 'var(--secondary-foreground, var(--foreground))'
   			},
   			destructive: {
-  				DEFAULT: 'hsl(var(--destructive))',
-  				foreground: 'hsl(var(--destructive-foreground))'
+  				DEFAULT: 'var(--error)',
+  				foreground: '#ffffff',
+  				hover: 'var(--error-hover)'
   			},
   			muted: {
   				DEFAULT: 'var(--muted)',
@@ -95,6 +98,26 @@ export default {
   			card: {
   				DEFAULT: 'var(--card)',
   				foreground: 'var(--card-foreground)'
+  			},
+  			success: {
+  				DEFAULT: 'var(--success)',
+  				foreground: '#ffffff',
+  				hover: 'var(--success-hover)'
+  			},
+  			warning: {
+  				DEFAULT: 'var(--warning)',
+  				foreground: '#000000',
+  				hover: 'var(--warning-hover)'
+  			},
+  			error: {
+  				DEFAULT: 'var(--error)',
+  				foreground: '#ffffff',
+  				hover: 'var(--error-hover)'
+  			},
+  			info: {
+  				DEFAULT: 'var(--info)',
+  				foreground: '#ffffff',
+  				hover: 'var(--info-hover)'
   			},
   			shiki: {
   				light: 'var(--shiki-light)',

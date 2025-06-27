@@ -172,10 +172,20 @@ class LLMPool:
         elif provider == Provider.ANTHROPIC:
             if not settings.anthropic_api_key:
                 raise ValueError("Anthropic API key not configured")
+            
+            # Check if this is Claude Sonnet 4
+            if model == "claude-sonnet-4-20250514":
+                # Note: thinking mode requires direct Anthropic API usage
+                # LangChain's ChatAnthropic doesn't support thinking parameter yet
+                logger.info(f"Claude Sonnet 4 detected in pool - using temperature=1.0")
+                temperature = 1.0
+            else:
+                temperature = 0.7
+            
             llm = ChatAnthropic(
                 api_key=settings.anthropic_api_key,
                 model=model,
-                temperature=0.7
+                temperature=temperature
             )
             return RetryableLLM(llm)
             

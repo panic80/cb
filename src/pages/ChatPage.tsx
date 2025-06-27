@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Settings, Copy, RefreshCw, Sparkles, Command as CommandIcon, ArrowLeft, Mic, Paperclip, Hash, AtSign, HelpCircle, Zap, ChevronDown, Volume2, X, Database } from 'lucide-react';
+import { Send, Settings, Copy, RefreshCw, Sparkles, Command as CommandIcon, Mic, Paperclip, Hash, AtSign, HelpCircle, Zap, ChevronDown, Volume2, X, Database, MapIcon } from 'lucide-react';
 import { motion, AnimatePresence, useMotionValue, useTransform, useSpring } from 'framer-motion';
 import { Button } from '@/components/ui/button';
+import { AnimatedButton } from '@/components/ui/animated-button';
+import { EnhancedBackButton } from '@/components/ui/enhanced-back-button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent } from '@/components/ui/card';
@@ -9,6 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Skeleton, SkeletonText, SkeletonChatMessage } from '@/components/ui/skeleton';
 import MarkdownRenderer from '@/components/ui/markdown-renderer';
 import SuggestionController from '@/components/SuggestionController';
 import { useSuggestionVisibility } from '@/hooks/useSuggestionVisibility';
@@ -18,6 +21,7 @@ import { getModelDisplayName, DEFAULT_MODEL_ID } from '../constants/models';
 import { generateFollowUpQuestions } from '../services/followUpService';
 import { Message, Source, FollowUpQuestion } from '@/types/chat';
 import { SourcesDisplay } from '@/components/SourcesDisplay';
+import { TripPlanner } from '@/components/TripPlanner';
 
 /**
  * Format plain text response into markdown
@@ -74,10 +78,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
   const [showInlineCommand, setShowInlineCommand] = useState(false);
   const [commandFilter, setCommandFilter] = useState('');
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
-  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
+  const [collapsedMessages, setCollapsedMessages] = useState<Set<string>>(new Set());
   const [showHelpDialog, setShowHelpDialog] = useState(false);
   const [useRAG, setUseRAG] = useState(true);
   const [conversationId, setConversationId] = useState<string>('');
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -93,6 +98,14 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
   
   // Use theme from props or fall back to local detection for standalone usage
   const theme = propTheme || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  
+  // Simulate initial loading
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsInitialLoading(false);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, []);
   
   // Inline command suggestions
   const inlineCommands = [
@@ -151,7 +164,13 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
     // Small delay to ensure DOM updates and animations are complete
     const timeoutId = setTimeout(scrollToBottom, 150);
     
-    return () => clearTimeout(timeoutId);
+    // Additional scroll after follow-up questions might appear
+    const followUpTimeoutId = setTimeout(scrollToBottom, 500);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      clearTimeout(followUpTimeoutId);
+    };
   }, [messages, isLoading]);
 
   // Command palette and inline commands keyboard shortcuts
@@ -447,9 +466,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
     }
   };
   
-  // Toggle message expansion
-  const toggleMessageExpansion = (messageId: string) => {
-    setExpandedMessages(prev => {
+  // Toggle message collapse
+  const toggleMessageCollapse = (messageId: string) => {
+    setCollapsedMessages(prev => {
       const newSet = new Set(prev);
       if (newSet.has(messageId)) {
         newSet.delete(messageId);
@@ -477,6 +496,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
     setInput(question);
     // Optionally auto-send the question
     // handleSendMessage(question);
+  };
+
+  const handleTripPlanSubmit = (tripPlan: string) => {
+    // Send the trip plan as a message
+    handleSendMessage(tripPlan);
   };
 
 
@@ -527,49 +551,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
   return (
     <TooltipProvider>
       <div className="flex h-screen bg-[var(--background)] text-[var(--text)] relative overflow-hidden">
-        {/* Animated Theme Toggle Button */}
-        <motion.div 
-          className="fixed top-4 right-4 z-50"
-          initial={{ opacity: 0, scale: 0 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: "spring", stiffness: 500, damping: 30 }}
-        >
-          <motion.button
-            onClick={toggleTheme}
-            className="flex items-center justify-center p-3 bg-[var(--card)] text-[var(--text)] rounded-full shadow-lg hover:shadow-xl transition-all duration-300 border-2 border-[var(--primary)] hover:bg-[var(--background-secondary)]"
-            aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-            whileHover={{ scale: 1.1, rotate: 180 }}
-            whileTap={{ scale: 0.9 }}
-            transition={{ type: "spring", stiffness: 400, damping: 17 }}
-          >
-            <AnimatePresence mode="wait">
-              {theme === 'light' ? (
-                <motion.svg 
-                  key="moon"
-                  width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"
-                  initial={{ rotate: -90, opacity: 0 }}
-                  animate={{ rotate: 0, opacity: 1 }}
-                  exit={{ rotate: 90, opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <path d="M20 14.12A7.78 7.78 0 019.88 4a7.78 7.78 0 002.9 15.1 7.78 7.78 0 007.22-5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </motion.svg>
-              ) : (
-                <motion.svg 
-                  key="sun"
-                  width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"
-                  initial={{ rotate: 90, opacity: 0 }}
-                  animate={{ rotate: 0, opacity: 1 }}
-                  exit={{ rotate: -90, opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
-                  <path d="M12 2v2m0 16v2M2 12h2m16 0h2m-3-7l-1.5 1.5M4.93 4.93l1.5 1.5m11.14 11.14l1.5 1.5M4.93 19.07l1.5-1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </motion.svg>
-              )}
-            </AnimatePresence>
-          </motion.button>
-        </motion.div>
 
         {/* Interactive Background Elements */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -645,40 +626,24 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
         <div className="flex-1 flex flex-col relative w-full">
           {/* Enhanced Header */}
           <motion.header 
-            className="border-b border-[var(--border)] glass sticky top-0 z-40"
+            className="border-b border-[var(--border)] bg-background/95 backdrop-blur sticky top-0 z-40"
             initial={{ y: -100 }}
             animate={{ y: 0 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
           >
-            <div className="flex items-center justify-between p-6">
-              <div className="flex items-center gap-3">
-                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    onClick={() => window.location.href = '/'}
-                    className="hover:bg-[var(--background-secondary)] text-[var(--text)]"
-                    aria-label="Back to home"
-                  >
-                    <ArrowLeft size={20} />
-                  </Button>
-                </motion.div>
+            <div className="h-14 px-4 flex items-center justify-between">
+              <div className="flex items-center">
+                <EnhancedBackButton to="/" label="Home" variant="minimal" size="sm" />
+                <div className="h-6 w-px bg-border/50 mx-3" />
                 <motion.div 
-                  className="w-8 h-8 rounded-full bg-[var(--primary)] flex items-center justify-center shadow-lg"
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+                  className="w-8 h-8 rounded-full bg-primary flex items-center justify-center mr-2"
                   whileHover={{ scale: 1.1 }}
                 >
                   <Sparkles size={16} className="text-white" />
                 </motion.div>
-                <motion.h1 
-                  className="text-xl font-semibold gradient-text"
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.2 }}
-                >
+                <span className="text-2xl font-bold text-foreground">
                   Policy Assistant
-                </motion.h1>
+                </span>
               </div>
               <motion.div 
                 className="flex items-center gap-2"
@@ -708,6 +673,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
                     <p>Command Palette (⌘K)</p>
                   </TooltipContent>
                 </Tooltip>
+                <TripPlanner 
+                  onSubmit={handleTripPlanSubmit}
+                />
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
@@ -725,13 +693,53 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
                     <p>Settings</p>
                   </TooltipContent>
                 </Tooltip>
+                <motion.button
+                  onClick={toggleTheme}
+                  className="flex items-center justify-center p-2 rounded-full hover:bg-[var(--background-secondary)] transition-all duration-200"
+                  aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <AnimatePresence mode="wait">
+                    {theme === 'light' ? (
+                      <motion.svg 
+                        key="moon"
+                        width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"
+                        initial={{ rotate: -90, opacity: 0 }}
+                        animate={{ rotate: 0, opacity: 1 }}
+                        exit={{ rotate: 90, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <path d="M20 14.12A7.78 7.78 0 019.88 4a7.78 7.78 0 002.9 15.1 7.78 7.78 0 007.22-5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </motion.svg>
+                    ) : (
+                      <motion.svg 
+                        key="sun"
+                        width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"
+                        initial={{ rotate: 90, opacity: 0 }}
+                        animate={{ rotate: 0, opacity: 1 }}
+                        exit={{ rotate: -90, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
+                        <path d="M12 2v2m0 16v2M2 12h2m16 0h2m-3-7l-1.5 1.5M4.93 4.93l1.5 1.5m11.14 11.14l1.5 1.5M4.93 19.07l1.5-1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </motion.svg>
+                    )}
+                  </AnimatePresence>
+                </motion.button>
               </motion.div>
             </div>
           </motion.header>
 
           {/* Messages Area */}
           <ScrollArea ref={scrollAreaRef} className="flex-1 relative">
-            {messages.length === 0 ? (
+            {isInitialLoading ? (
+              <div className="max-w-4xl mx-auto px-6 pt-8 pb-32 space-y-8">
+                {[...Array(3)].map((_, i) => (
+                  <SkeletonChatMessage key={i} isUser={i % 2 === 0} />
+                ))}
+              </div>
+            ) : messages.length === 0 ? (
               <motion.div 
                 className="flex items-center justify-center h-full p-6"
                 initial={{ opacity: 0 }}
@@ -799,12 +807,12 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
                 </div>
               </motion.div>
             ) : (
-              <div className="max-w-4xl mx-auto px-6 py-8">
+              <div className="max-w-4xl mx-auto px-6 pt-8 pb-32">
                 <AnimatePresence>
                   {messages.map((message, messageIndex) => {
-                    const isExpanded = expandedMessages.has(message.id);
+                    const isCollapsed = collapsedMessages.has(message.id);
                     const shouldTruncate = message.content.length > 500;
-                    const displayContent = shouldTruncate && !isExpanded 
+                    const displayContent = shouldTruncate && isCollapsed 
                       ? message.content.slice(0, 400) + '...' 
                       : message.content;
                     
@@ -872,16 +880,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
                                   {shouldTruncate && (
                                     <motion.button
                                       className="mt-3 px-3 py-1.5 text-sm font-medium bg-[var(--primary)] text-white rounded-full hover:bg-[var(--primary-hover)] transition-all duration-200 flex items-center gap-1.5 shadow-sm hover:shadow-md"
-                                      onClick={() => toggleMessageExpansion(message.id)}
+                                      onClick={() => toggleMessageCollapse(message.id)}
                                       whileHover={{ scale: 1.05 }}
                                       whileTap={{ scale: 0.95 }}
                                     >
-                                      {isExpanded ? 'Show less' : 'Read more'}
+                                      {isCollapsed ? 'Read more' : 'Show less'}
                                       <ChevronDown 
                                         size={16} 
                                         className={cn(
                                           "transition-transform duration-200",
-                                          isExpanded ? "rotate-180" : ""
+                                          isCollapsed ? "" : "rotate-180"
                                         )}
                                       />
                                     </motion.button>
@@ -896,17 +904,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
                             )} */}
                           </CardContent>
                         </Card>
-                        
-                        {/* Enhanced Follow-up Questions with Smart Progressive Disclosure */}
-                        {message.sender === 'assistant' && message.followUpQuestions && message.followUpQuestions.length > 0 && (
-                          <SuggestionController 
-                            questions={message.followUpQuestions}
-                            onQuestionClick={handleFollowUpClick}
-                            messageId={message.id}
-                            isLatestMessage={messageIndex === messages.length - 1}
-                            className="mt-4"
-                          />
-                        )}
                         
                         {/* Message Actions */}
                         {message.sender === 'assistant' && (
@@ -978,20 +975,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
                             </Tooltip>
                           </motion.div>
                         )}
-                        
-                        <motion.div 
-                          className="text-xs text-[var(--text-secondary)] mt-2 px-2 flex items-center gap-2"
-                              initial={{ opacity: 0 }}
-                              animate={{ opacity: 0.7 }}
-                              transition={{ delay: 0.5 }}
-                            >
-                              {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              {message.sender === 'assistant' && currentModel && (
-                                <span className="opacity-60">• {currentModel}</span>
-                              )}
-                            </motion.div>
-                          </motion.div>
-                          {message.sender === 'user' && (
+                      </motion.div>
+                      
+                      {message.sender === 'user' && (
                             <motion.div
                               initial={{ scale: 0 }}
                               animate={{ scale: 1 }}
@@ -1005,6 +991,31 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
                             </motion.div>
                           )}
                         </div>
+                        
+                        <motion.div 
+                          className="text-xs text-[var(--text-secondary)] mt-2 px-2 flex items-center gap-2"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 0.7 }}
+                          transition={{ delay: 0.5 }}
+                        >
+                          {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {message.sender === 'assistant' && currentModel && (
+                            <span className="opacity-60">• {currentModel}</span>
+                          )}
+                        </motion.div>
+                        
+                        {/* Enhanced Follow-up Questions with Smart Progressive Disclosure */}
+                        {message.sender === 'assistant' && message.followUpQuestions && message.followUpQuestions.length > 0 && (
+                          <div className="w-full mt-4">
+                            <SuggestionController 
+                              questions={message.followUpQuestions}
+                              onQuestionClick={handleFollowUpClick}
+                              messageId={message.id}
+                              isLatestMessage={messageIndex === messages.length - 1}
+                              className=""
+                            />
+                          </div>
+                        )}
                       </motion.div>
                     );
                   })}
@@ -1126,14 +1137,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
                         >
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button
+                              <AnimatedButton
                                 size="icon"
                                 variant="ghost"
                                 className="h-8 w-8 rounded-xl"
                                 onClick={() => setInput('')}
+                                ripple
                               >
                                 <X size={16} />
-                              </Button>
+                              </AnimatedButton>
                             </TooltipTrigger>
                             <TooltipContent>
                               <p>Clear</p>
@@ -1147,14 +1159,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
                     <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button
+                          <AnimatedButton
                             size="icon"
                             variant="ghost"
                             className="h-8 w-8 rounded-xl"
                             onClick={() => setShowHelpDialog(true)}
+                            ripple
                           >
                             <HelpCircle size={16} />
-                          </Button>
+                          </AnimatedButton>
                         </TooltipTrigger>
                         <TooltipContent>
                           <p>Help</p>
@@ -1162,24 +1175,22 @@ const ChatPage: React.FC<ChatPageProps> = ({ theme: propTheme, toggleTheme: prop
                       </Tooltip>
                     </motion.div>
                     
-                    <motion.div
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
+                    <AnimatedButton
+                      onClick={() => handleSendMessage()}
+                      disabled={!input.trim() || isLoading}
+                      size="icon"
+                      className="h-10 w-10 rounded-2xl shadow-lg"
+                      variant="default"
+                      ripple
+                      glow
                     >
-                      <Button
-                        onClick={() => handleSendMessage()}
-                        disabled={!input.trim() || isLoading}
-                        size="icon"
-                        className="h-10 w-10 rounded-2xl bg-[var(--primary)] hover:bg-[var(--primary-hover)] border-0 shadow-lg transition-all duration-300 hover:shadow-xl disabled:opacity-50"
+                      <motion.div
+                        animate={isLoading ? { rotate: 360 } : {}}
+                        transition={{ duration: 1, repeat: isLoading ? Infinity : 0, ease: "linear" }}
                       >
-                        <motion.div
-                          animate={isLoading ? { rotate: 360 } : {}}
-                          transition={{ duration: 1, repeat: isLoading ? Infinity : 0, ease: "linear" }}
-                        >
-                          <Send size={18} />
-                        </motion.div>
-                      </Button>
-                    </motion.div>
+                        <Send size={18} />
+                      </motion.div>
+                    </AnimatedButton>
                   </div>
                 </div>
               </div>

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import time
+import os
 from typing import Dict, Any
 
 from app.core.config import settings
@@ -82,6 +83,9 @@ async def lifespan(app: FastAPI):
 
 
 # Create FastAPI app
+logger.info(f"[DIAGNOSTIC] Creating FastAPI app with api_prefix: {settings.api_prefix}")
+logger.info(f"[DIAGNOSTIC] Environment RAG_API_PREFIX: {os.getenv('RAG_API_PREFIX', 'not set')}")
+
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,

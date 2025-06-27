@@ -12,7 +12,9 @@ import {
   ChevronRightIcon,
   UserGroupIcon,
   CogIcon,
-  WrenchScrewdriverIcon
+  WrenchScrewdriverIcon,
+  SparklesIcon as CrownIcon,
+  BookOpenIcon
 } from '@heroicons/react/24/solid';
 import '../styles/sticky-footer.css';
 import '../styles/landing.css';
@@ -87,9 +89,11 @@ export default function LandingPage() {
     preloadChat();
   }, []);
 
-  const [showModal, setShowModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
+  const [showSCIPConfirmation, setShowSCIPConfirmation] = useState(false);
+  
+  console.log('Privacy modal state:', showPrivacyModal);
   
   useEffect(() => {
     const computedFont = window.getComputedStyle(document.body).getPropertyValue('font-family');
@@ -97,45 +101,21 @@ export default function LandingPage() {
   }, []);
 
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-  const [showSOPSubmodal, setShowSOPSubmodal] = useState(false);
-  const [showOnboardingSubmodal, setShowOnboardingSubmodal] = useState(false);
-  
-  // Refs for submodals to detect clicks outside
-  const sopSubmodalRef = useRef(null);
-  const onboardingSubmodalRef = useRef(null);
 
-  // Handle clicks outside submodals
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      // Check if SOP submodal is open and click is outside
-      if (showSOPSubmodal &&
-          sopSubmodalRef.current &&
-          !sopSubmodalRef.current.contains(event.target) &&
-          !event.target.closest('[data-sop-trigger="true"]')) {
-        setShowSOPSubmodal(false);
-      }
-      
-      // Check if Onboarding submodal is open and click is outside
-      if (showOnboardingSubmodal &&
-          onboardingSubmodalRef.current &&
-          !onboardingSubmodalRef.current.contains(event.target) &&
-          !event.target.closest('[data-onboarding-trigger="true"]')) {
-        setShowOnboardingSubmodal(false);
-      }
-    };
-
-    // Add event listener
-    document.addEventListener('mousedown', handleClickOutside);
-    
-    // Cleanup function
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showSOPSubmodal, showOnboardingSubmodal]);
 
   const handleAboutClick = (e) => {
     e.preventDefault();
     setShowAboutModal(true);
+  };
+
+  const handleSCIPClick = (e) => {
+    e.preventDefault();
+    setShowSCIPConfirmation(true);
+  };
+
+  const confirmSCIPNavigation = () => {
+    window.open('https://apps.powerapps.com/play/e/default-325b4494-1587-40d5-bb31-8b660b7f1038/a/75e3789b-9c1d-4feb-9515-20665ab7d6e8?tenantId=325b4494-1587-40d5-bb31-8b660b7f1038&amp;hint=c63b9850-8dc3-44f2-a186-f215cf7de716&amp;sourcetime=1738854913080', '_blank', 'noopener,noreferrer');
+    setShowSCIPConfirmation(false);
   };
 
   return (
@@ -194,7 +174,7 @@ export default function LandingPage() {
               <div className="w-full max-w-4xl mx-auto text-center relative z-10">
                 {/* Animated Icon */}
                 <div
-                  className="mb-6 sm:mb-8 md:mb-10 flex justify-center transform transition-all duration-500 hover:scale-110"
+                  className="mb-6 sm:mb-8 md:mb-10 flex justify-center transform transition-all duration-300 hover:scale-110"
                 >
                   <BuildingLibraryIcon
                     className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 text-[var(--primary)] animate-scale"
@@ -213,7 +193,7 @@ export default function LandingPage() {
                     role="heading"
                     aria-level="1"
                   >
-                    32 CBG G8 Administration Hub
+                    32 CBG G8<br />Administration Hub
                     <span
                       className="block text-sm sm:text-lg md:text-xl lg:text-2xl mt-3 sm:mt-4 md:mt-6 text-[var(--text-secondary)] font-normal animate-fade-up"
                       style={{ animationDelay: '0.4s' }}
@@ -253,7 +233,7 @@ export default function LandingPage() {
                   {/* Policy Assistant Card */}
                   <Link
                     to="/chat"
-                    className={`group card-hover glass rounded-2xl p-4 sm:p-6 md:p-8 transition-all duration-1000 transform w-full md:min-w-[350px] ${
+                    className={`group card-hover glass rounded-2xl p-4 sm:p-6 md:p-8 transition-opacity duration-1000 transform w-full md:min-w-[350px] ${
                       featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
                     }`}
                     style={{ transitionDelay: '0.2s' }}
@@ -261,14 +241,15 @@ export default function LandingPage() {
                   >
                     <div className="flex flex-col items-center text-center space-y-4 sm:space-y-6">
                       <div className="relative">
-                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
-                        <div className="relative transform transition-all duration-500 group-hover:scale-110">
+                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-300" />
+                        <div className="relative transform transition-all duration-300 group-hover:scale-110">
                           <QuestionMarkCircleIcon className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 text-[var(--primary)]" aria-hidden="true" />
                         </div>
                       </div>
                       <div className="space-y-3 sm:space-y-4">
-                        <h3 className="text-lg sm:text-xl md:text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                        <h3 className="text-lg sm:text-xl md:text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300 flex items-center gap-2 justify-center">
                           Policy Assistant
+                          <CrownIcon className="w-5 h-5 sm:w-6 sm:h-6 text-yellow-500" />
                         </h3>
                         <p className="text-sm sm:text-base text-[var(--text)] opacity-80 leading-relaxed">
                           Interactive AI-powered guide for policy inquiries and administrative procedures.
@@ -278,11 +259,10 @@ export default function LandingPage() {
                   </Link>
 
                   {/* SCIP Portal Card */}
-                  <a
-                    href="https://apps.powerapps.com/play/e/default-325b4494-1587-40d5-bb31-8b660b7f1038/a/75e3789b-9c1d-4feb-9515-20665ab7d6e8?tenantId=325b4494-1587-40d5-bb31-8b660b7f1038&amp;hint=c63b9850-8dc3-44f2-a186-f215cf7de716&amp;sourcetime=1738854913080"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`group card-hover glass rounded-2xl p-4 sm:p-6 md:p-8 transition-all duration-1000 transform w-full md:min-w-[350px] ${
+                  <Link
+                    to="#"
+                    onClick={handleSCIPClick}
+                    className={`group card-hover glass rounded-2xl p-4 sm:p-6 md:p-8 transition-opacity duration-1000 transform w-full md:min-w-[350px] ${
                       featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
                     }`}
                     style={{ transitionDelay: '0.4s' }}
@@ -290,8 +270,8 @@ export default function LandingPage() {
                   >
                     <div className="flex flex-col items-center text-center space-y-4 sm:space-y-6">
                       <div className="relative">
-                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
-                        <div className="relative transform transition-all duration-500 group-hover:scale-110">
+                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-300" />
+                        <div className="relative transform transition-all duration-300 group-hover:scale-110">
                           <DocumentTextIcon className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 text-[var(--primary)]" aria-hidden="true" />
                         </div>
                       </div>
@@ -304,12 +284,12 @@ export default function LandingPage() {
                         </p>
                       </div>
                     </div>
-                  </a>
+                  </Link>
 
                   {/* OPI Contact Card */}
                   <Link
                     to="/opi"
-                    className={`group card-hover glass rounded-2xl p-4 sm:p-6 md:p-8 transition-all duration-1000 transform w-full md:min-w-[350px] ${
+                    className={`group card-hover glass rounded-2xl p-4 sm:p-6 md:p-8 transition-opacity duration-1000 transform w-full md:min-w-[350px] ${
                       featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
                     }`}
                     style={{ transitionDelay: '0.6s' }}
@@ -317,8 +297,8 @@ export default function LandingPage() {
                   >
                     <div className="flex flex-col items-center text-center space-y-4 sm:space-y-6">
                       <div className="relative">
-                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
-                        <div className="relative transform transition-all duration-500 group-hover:scale-110">
+                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-300" />
+                        <div className="relative transform transition-all duration-300 group-hover:scale-110">
                           <UserGroupIcon className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 text-[var(--primary)]" aria-hidden="true" />
                         </div>
                       </div>
@@ -333,32 +313,32 @@ export default function LandingPage() {
                     </div>
                   </Link>
 
-                  {/* Administrative Tools Card */}
-                  <div
-                    onClick={() => setShowModal(true)}
-                    className={`group card-hover glass rounded-2xl p-4 sm:p-6 md:p-8 transition-all duration-1000 transform cursor-pointer w-full md:min-w-[350px] ${
+                  {/* Resource Library Card */
+                  <Link
+                    to="/admin-tools"
+                    className={`group card-hover glass rounded-2xl p-4 sm:p-6 md:p-8 transition-opacity duration-1000 transform w-full md:min-w-[350px] ${
                       featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
                     }`}
                     style={{ transitionDelay: '0.8s' }}
-                    aria-label="Access Administrative Tools"
+                    aria-label="Access Resource Library"
                   >
                     <div className="flex flex-col items-center text-center space-y-4 sm:space-y-6">
                       <div className="relative">
-                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-500" />
-                        <div className="relative transform transition-all duration-500 group-hover:scale-110">
-                          <WrenchScrewdriverIcon className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 text-[var(--primary)]" aria-hidden="true" />
+                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-300" />
+                        <div className="relative transform transition-all duration-300 group-hover:scale-110">
+                          <BookOpenIcon className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 text-[var(--primary)]" aria-hidden="true" />
                         </div>
                       </div>
                       <div className="space-y-3 sm:space-y-4">
                         <h3 className="text-lg sm:text-xl md:text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
-                          Administrative Tools
+                          Resource Library
                         </h3>
                         <p className="text-sm sm:text-base text-[var(--text)] opacity-80 leading-relaxed">
-                          Access SOPs, guides, and administrative resources for your unit.
+                          Access SOPs, how-to guides, FAQs, templates, and comprehensive administrative documentation.
                         </p>
                       </div>
                     </div>
-                  </div>
+                  </Link>
                 </div>
               </div>
             </section>
@@ -435,199 +415,6 @@ export default function LandingPage() {
       </div>
 
       {/* Modals */}
-      {/* Administrative Tools Modal */}
-      {showModal && (
-        <>
-          <div className="fixed inset-0 bg-black/60 z-40 animate-fade-in" onClick={() => setShowModal(false)} />
-          <div className="fixed z-50 animate-float-up max-w-lg w-[90vw] mx-auto" style={{top: '50%', left: '50%', transform: 'translate(-50%, -50%)'}}>
-            <div className="bg-[var(--card)] text-[var(--text)] rounded-xl border border-[var(--border)] shadow-2xl">
-              {/* Header */}
-              <div className="p-6 border-b border-[var(--border)]">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-2xl font-semibold">Other Tools</h2>
-                  <button 
-                    onClick={() => setShowModal(false)}
-                    className="p-2 hover:bg-[var(--background-secondary)] rounded-full transition-colors"
-                    aria-label="Close modal"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-6">
-                <ul className="divide-y divide-[var(--border)]">
-                  {/* Administrative Tools Button */}
-                  <li className="py-3 first:pt-0 relative group/item">
-                    <div
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.nativeEvent.stopImmediatePropagation();
-                        setShowOnboardingSubmodal(false);
-                        setShowSOPSubmodal(true);
-                      }}
-                      className="flex items-center p-3 rounded-lg hover:bg-[var(--background-secondary)] transition-all duration-200 group cursor-pointer"
-                      data-sop-trigger="true"
-                    >
-                      <div className="p-2 rounded-lg bg-[var(--background-secondary)] group-hover:bg-[var(--primary)] transition-colors">
-                        <DocumentTextIcon className="w-6 h-6 text-[var(--primary)] group-hover:text-white" />
-                      </div>
-                      <div className="ml-4">
-                        <span className="block font-medium group-hover:text-[var(--primary)] transition-colors">Standard Operating Procedures</span>
-                        <span className="text-sm text-[var(--text-secondary)]">Access SOPs and guidelines</span>
-                      </div>
-                      <svg className="w-5 h-5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </div>
-                    
-                    <div
-                      ref={sopSubmodalRef}
-                      className={`absolute top-0 md:w-72 w-full bg-[var(--card)] text-[var(--text)] rounded-xl border border-[var(--border)] shadow-2xl transition-all duration-300 ${showSOPSubmodal ? 'visible opacity-100 pointer-events-auto' : 'invisible opacity-0 pointer-events-none'}`}
-                      style={{
-                        backdropFilter: 'none',
-                        WebkitBackdropFilter: 'none',
-                        zIndex: 100,
-                        left: windowWidth < 768 ? '0' : 'calc(100% - 100px)',
-                        maxHeight: windowWidth < 768 ? '60vh' : 'none',
-                        overflowY: windowWidth < 768 ? 'auto' : 'visible'
-                      }}>
-                      <div className="bg-[var(--background-secondary)] rounded-xl" style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }}>
-                        <div className="p-4 border-b border-[var(--border)]">
-                          <div className="flex justify-between items-center">
-                            <h3 className="text-lg font-semibold">Standard Operating Procedures</h3>
-                            <button
-                              className="p-2 hover:bg-[var(--background)] rounded-full transition-colors"
-                              aria-label="Close submenu"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShowSOPSubmodal(false);
-                              }}
-                            >
-                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-                        <div className="p-4">
-                          <ul className="divide-y divide-[var(--border)]">
-                            <li className="py-2">
-                              <a href="https://scribehow.com/embed-preview/Boots_Reimbursement_Submission_in_SCIP__oWwTYHb2QUeKqvtYJ3DMkg?as=video" target="_blank" rel="noopener noreferrer" className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2">How to Submit Boot Claims</a>
-                            </li>
-                            <li className="py-2">
-                              <a href="https://scribehow.com/embed-preview/Initiating_TD_Claim_in_SCIP__GGXSDQBnSNq6H5GX_cZUuQ?as=video" target="_blank" rel="noopener noreferrer" className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2">How to Submit TD Claims</a>
-                            </li>
-                            <li className="py-2">
-                              <a href="https://scribehow.com/embed-preview/Finalizing_a_TD_Claim_in_SCIP__w_JFn6AuTA--OpCHeFqYxA?as=video" target="_blank" rel="noopener noreferrer" className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2">How to Finalize TD Claims</a>
-                            </li>
-                          </ul>
-                        </div>
-                        <div className="p-4 border-t border-[var(--border)]">
-                          <button
-                            onClick={() => setShowSOPSubmodal(false)}
-                            className="w-full px-4 py-2 text-center text-[var(--text)] bg-[var(--card)] hover:bg-[var(--primary)] hover:text-white rounded-lg transition-colors duration-200"
-                          >
-                            Close
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </li>
-
-                  <li className="py-3 last:pb-0 relative group/item">
-                    <div
-                      className="flex items-center p-3 rounded-lg hover:bg-[var(--background-secondary)] transition-all duration-200 group cursor-pointer"
-                      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setShowSOPSubmodal(false); setShowOnboardingSubmodal(true); }}
-                      data-onboarding-trigger="true"
-                    >
-                      <div className="flex items-center">
-                        <div className="p-2 rounded-lg bg-[var(--background-secondary)] group-hover:bg-[var(--primary)] transition-colors">
-                          <BuildingLibraryIcon className="w-6 h-6 text-[var(--primary)] group-hover:text-white" />
-                        </div>
-                        <div className="ml-4 text-left">
-                          <span className="block font-medium group-hover:text-[var(--primary)] transition-colors">Onboarding Guide</span>
-                          <span className="text-sm text-[var(--text-secondary)]">Collection of Onboarding SCIP Guides</span>
-                        </div>
-                        <svg className="w-5 h-5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </div>
-                    </div>
-                    <div
-                      ref={onboardingSubmodalRef}
-                      className={`absolute top-0 md:w-72 w-full bg-[var(--card)] text-[var(--text)] rounded-xl border border-[var(--border)] shadow-2xl transition-all duration-300 ${showOnboardingSubmodal ? 'visible opacity-100 pointer-events-auto' : 'invisible opacity-0 pointer-events-none'}`}
-                      style={{
-                        backdropFilter: 'none',
-                        WebkitBackdropFilter: 'none',
-                        zIndex: 100,
-                        left: windowWidth < 768 ? '0' : 'calc(100% - 100px)',
-                        maxHeight: windowWidth < 768 ? '60vh' : 'none',
-                        overflowY: windowWidth < 768 ? 'auto' : 'visible'
-                      }}>
-                      <div className="bg-[var(--background-secondary)] rounded-xl" style={{ backdropFilter: 'none', WebkitBackdropFilter: 'none' }}>
-                        <div className="p-4 border-b border-[var(--border)]">
-                          <div className="flex justify-between items-center">
-                            <h3 className="text-lg font-semibold">Other Resources</h3>
-                            <button
-                              className="p-2 hover:bg-[var(--background)] rounded-full transition-colors cursor-pointer"
-                              aria-label="Close submenu"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setShowOnboardingSubmodal(false);
-                              }}
-                            >
-                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-                        <div className="p-4">
-                          <ul className="divide-y divide-[var(--border)]">
-                            <li className="py-2">
-                              <a href="https://scribehow.com/embed-preview/SCIP_Mobile_Onboarding__qa62L6ezQi2nTzcp3nqq1Q?as=video" className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2">SCIP Mobile Onboarding Guide</a>
-                             </li>
-                             <li className="py-2">
-                               <a href="/scip-desktop" className="block cursor-pointer hover:bg-[var(--background)] hover:text-[var(--primary)] transition-colors duration-200 rounded px-2">SCIP Desktop Onboarding Guide (Coming Soon)</a>
-                             </li>
-                           </ul>
-                         </div>
-                        <div className="p-4 border-t border-[var(--border)]">
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setShowOnboardingSubmodal(false);
-                            }}
-                            className="w-full px-4 py-2 text-center text-[var(--text)] bg-[var(--card)] hover:bg-[var(--primary)] hover:text-white rounded-lg transition-colors duration-200"
-                          >
-                            Close
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </li>
-                </ul>
-              </div>
-
-              {/* Footer */}
-              <div className="p-6 border-t border-[var(--border)] bg-[var(--background-secondary)] rounded-b-xl">
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="w-full px-4 py-2 text-center text-[var(--text)] bg-[var(--card)] hover:bg-[var(--primary)] hover:text-white rounded-lg transition-colors duration-200"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
       {/* Privacy Modal */}
       {showPrivacyModal && (
         <>
@@ -645,8 +432,11 @@ export default function LandingPage() {
                 <div className="flex justify-between items-center">
                   <h2 className="text-xl sm:text-2xl font-semibold">Privacy Policy</h2>
                   <button 
-                    onClick={() => setShowPrivacyModal(false)}
-                    className="p-2 hover:bg-[var(--background-secondary)] rounded-full transition-colors w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center"
+                    onClick={() => {
+                      console.log('Closing privacy modal');
+                      setShowPrivacyModal(false);
+                    }}
+                    className="p-2 hover:bg-[var(--background-secondary)] rounded-full transition-colors duration-300 w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center"
                     aria-label="Close privacy modal"
                   >
                     <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -691,7 +481,7 @@ export default function LandingPage() {
               <div className="p-4 sm:p-6 border-t border-[var(--border)] bg-[var(--background-secondary)] rounded-b-xl">
                 <button
                   onClick={() => setShowPrivacyModal(false)}
-                  className="w-full px-4 py-2 sm:py-3 text-center text-sm sm:text-base text-[var(--text)] bg-[var(--card)] hover:bg-[var(--primary)] hover:text-white rounded-lg transition-colors duration-200 h-10 sm:h-12"
+                  className="w-full px-4 py-2 sm:py-3 text-center text-sm sm:text-base text-[var(--text)] bg-[var(--card)] hover:bg-[var(--primary)] hover:text-white rounded-lg transition-colors duration-300 h-10 sm:h-12"
                 >
                   Close
                 </button>
@@ -721,7 +511,7 @@ export default function LandingPage() {
                 <div className="flex justify-between items-center">
                   <h2 className="text-xl sm:text-2xl font-semibold">About This Page</h2>
                   <button onClick={() => setShowAboutModal(false)}
-                          className="p-2 hover:bg-[var(--background-secondary)] rounded-full transition-colors w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center"
+                          className="p-2 hover:bg-[var(--background-secondary)] rounded-full transition-colors duration-300 w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center"
                           aria-label="Close modal">
                     <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -730,38 +520,98 @@ export default function LandingPage() {
                 </div>
               </div>
               <div className="p-4 sm:p-6 overflow-y-auto" style={{ maxHeight: "calc(100vh - 16rem)" }}>
+                <h3 className="text-base sm:text-lg font-semibold mb-2 text-[var(--primary)]">
+                  32 CBG G8 Admin Hub
+                </h3>
                 <p className="mb-3 sm:mb-4 text-sm sm:text-base">
-                  This unofficial site is not affiliated with the Department of National Defence (DND), the Canadian Armed Forces (CAF), or any associated departments or services. Use of this site is entirely at your own discretion.
+                  A comprehensive digital platform designed to streamline administrative processes for Canadian Armed Forces personnel, with a focus on travel claims, policy guidance, and financial services.
                 </p>
-                <h3 className="text-base sm:text-lg font-semibold mb-2">Purpose</h3>
-                <p className="mb-3 sm:mb-4 text-sm sm:text-base">
-                  Our goal is to provide Primary Reserve (P Res) members with quick and convenient access to essential G8 resources. We strive to streamline administrative processes and ensure you can locate accurate, up-to-date information whenever you need it.
-                </p>
-                <h3 className="text-base sm:text-lg font-semibold mb-2">Currently Available</h3>
+                <h3 className="text-base sm:text-lg font-semibold mb-2">Key Features</h3>
                 <ul className="list-disc list-inside mb-3 sm:mb-4 text-sm sm:text-base space-y-1">
-                  <li>SCIP &ndash; Your centralized portal for financial and administrative functions</li>
-                  <li>SOPs &ndash; Standard Operating Procedures for day-to-day reference</li>
-                  <li>Onboarding Guide &ndash; A step-by-step manual to welcome and orient new members</li>
+                  <li><strong className="text-[var(--primary)]">Policy Assistant</strong> &ndash; AI-powered chatbot providing instant guidance on CFTDTI policies, travel claims, and administrative procedures</li>
+                  <li><strong className="text-[var(--primary)]">SCIP Portal</strong> &ndash; Direct access to the Streamlined Claims Interface Platform for digital claim submission</li>
+                  <li><strong className="text-[var(--primary)]">OPI Contacts</strong> &ndash; Comprehensive directory of Financial Services (FSC) and Financial Management (FMC) personnel across 32 CBG units</li>
+                  <li><strong className="text-[var(--primary)]">Administrative Tools</strong> &ndash; SOPs, onboarding guides, and essential resources for efficient unit administration</li>
                 </ul>
-                <h3 className="text-base sm:text-lg font-semibold mb-2">Coming Soon</h3>
-                <ul className="list-disc list-inside mb-3 sm:mb-4 text-sm sm:text-base">
-                  <li>Unofficial Policy Chatbot &ndash; An interactive tool designed to answer your questions about claims and travel entitlements, referencing the CFTDTI and NJC websites</li>
-                </ul>
-                <h3 className="text-base sm:text-lg font-semibold mb-2">Privacy & Contact</h3>
+                <h3 className="text-base sm:text-lg font-semibold mb-2">Built for Efficiency</h3>
                 <p className="mb-3 sm:mb-4 text-sm sm:text-base">
-                  For privacy concerns, please use the Contact button or refer to our Privacy Policy. Your feedback is always welcome, and we look forward to improving your administrative experience.
+                  This portal consolidates multiple resources into a single, user-friendly interface, reducing the time spent searching for information and ensuring consistent access to up-to-date policies and contacts.
+                </p>
+                <h3 className="text-base sm:text-lg font-semibold mb-2">Disclaimer</h3>
+                <p className="mb-3 sm:mb-4 text-sm sm:text-base text-[var(--text-secondary)]">
+                  This is an unofficial site not affiliated with DND, CAF, or any government department. Information provided is for reference only. Always verify critical information through official channels.
                 </p>
                 <p className="text-xs sm:text-sm text-[var(--text-secondary)]">
-                  Disclaimer: This page is not supported by the Defence Wide Area Network (DWAN).
+                  Not supported by the Defence Wide Area Network (DWAN). Use at your own discretion.
+                </p>
+                <p className="text-xs sm:text-sm text-[var(--text-secondary)] mt-4 pt-4 border-t border-[var(--border)]">
+                  Maintained by the 32 CBG G8 Team
                 </p>
               </div>
               <div className="p-4 sm:p-6 border-t border-[var(--border)] bg-[var(--background-secondary)] rounded-b-xl">
                 <button
                   onClick={() => setShowAboutModal(false)}
-                  className="w-full px-4 py-2 sm:py-3 text-center text-sm sm:text-base text-[var(--text)] bg-[var(--card)] hover:bg-[var(--primary)] hover:text-white rounded-lg transition-colors duration-200 h-10 sm:h-12"
+                  className="w-full px-4 py-2 sm:py-3 text-center text-sm sm:text-base text-[var(--text)] bg-[var(--card)] hover:bg-[var(--primary)] hover:text-white rounded-lg transition-colors duration-300 h-10 sm:h-12"
                 >
                   Close
                 </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* SCIP Confirmation Modal */}
+      {showSCIPConfirmation && (
+        <>
+          <div 
+            className="fixed inset-0 bg-black/60 z-40 animate-fade-in" 
+            onClick={() => setShowSCIPConfirmation(false)}
+          />
+          <div 
+            className="fixed z-50 animate-float-up max-w-md w-[90vw] mx-auto" 
+            style={{
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)"
+            }}
+          >
+            <div className="bg-[var(--card)] text-[var(--text)] rounded-xl border border-[var(--border)] shadow-2xl">
+              <div className="p-4 sm:p-6 border-b border-[var(--border)]">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl sm:text-2xl font-semibold">SCIP Portal</h2>
+                  <button 
+                    onClick={() => setShowSCIPConfirmation(false)}
+                    className="p-2 hover:bg-[var(--background-secondary)] rounded-full transition-colors duration-300 w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center"
+                    aria-label="Close modal"
+                  >
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div className="p-4 sm:p-6">
+                <p className="mb-4 text-sm sm:text-base">
+                  You are about to navigate to the SCIP Portal, which is an external Microsoft PowerApps platform. Have your D365 login (@ecn.forces.gc.ca) ready.
+                </p>
+                <p className="mb-6 text-sm sm:text-base text-[var(--text-secondary)]">
+                  This will open in a new tab. Do you want to continue?
+                </p>
+                <div className="flex gap-3 justify-end">
+                  <button
+                    onClick={() => setShowSCIPConfirmation(false)}
+                    className="px-4 py-2 text-sm sm:text-base text-[var(--text)] bg-[var(--background-secondary)] hover:bg-[var(--background)] rounded-lg transition-colors duration-300"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmSCIPNavigation}
+                    className="px-4 py-2 text-sm sm:text-base text-white bg-[var(--primary)] hover:bg-[var(--primary-hover)] rounded-lg transition-colors duration-300"
+                  >
+                    Continue
+                  </button>
+                </div>
               </div>
             </div>
           </div>

@@ -90,6 +90,7 @@ const SmartActionChip: React.FC<SmartActionChipProps> = ({
         "min-h-[36px] text-left text-sm font-medium text-gray-600",
         "hover:bg-white/80 hover:shadow-md active:shadow-sm",
         "focus:outline-none focus:ring-1 focus:ring-blue-400 focus:ring-offset-1",
+        "max-w-full",
         getCategoryColor(question?.category).replace('border-', 'border-').replace('hover:border-', 'hover:border-').replace('hover:bg-', 'hover:bg-'),
         className
       )}

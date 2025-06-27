@@ -525,11 +525,8 @@ class IngestionPipeline:
                     return await loader.load_from_file(request.file_path)
                 
         # Use retry manager for network operations
-        return await self.retry_manager.execute_with_retry(
-            load_documents,
-            on_retry=lambda e, attempt: logger.warning(
-                f"Document loading retry {attempt}: {e}"
-            )
+        return await self.retry_manager.execute_with_retry_async(
+            load_documents
         )
         
     async def _split_documents_safely(
@@ -558,9 +555,10 @@ class IngestionPipeline:
                     
                     # Use the appropriate splitting method
                     if isinstance(splitter, SmartDocumentSplitter):
-                        return splitter.split_by_type([doc], doc_type)
+                        # SmartDocumentSplitter.split_by_type expects a single Document, not a list
+                        return splitter.split_by_type(doc, doc_type)
                     else:
-                        # LangChainTextSplitter has split_documents method
+                        # LangChainTextSplitter has split_documents method which expects a list
                         return splitter.split_documents([doc])
                 
                 # Process documents in parallel using executor
@@ -671,11 +669,8 @@ class IngestionPipeline:
                     operation="add_documents"
                 )
                 
-        await self.retry_manager.execute_with_retry(
-            store_documents,
-            on_retry=lambda e, attempt: logger.warning(
-                f"Document storage retry {attempt}: {e}"
-            )
+        await self.retry_manager.execute_with_retry_async(
+            store_documents
         )
         
     async def _store_documents_parallel(

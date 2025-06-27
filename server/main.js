@@ -7,6 +7,7 @@ import * as cheerio from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
+import { Client } from '@googlemaps/google-maps-services-js';
 import { loggingMiddleware } from './middleware/logging.js';
 import chatLogger from './services/logger.js';
 import CacheService from './services/cache.js';
@@ -246,6 +247,15 @@ if (isValidApiKey(process.env.ANTHROPIC_API_KEY)) {
   console.log('Anthropic API client initialized');
 } else {
   console.log('Anthropic API key not configured or invalid');
+}
+
+// Initialize Google Maps client
+let googleMapsClient = null;
+if (isValidApiKey(process.env.GOOGLE_MAPS_API_KEY)) {
+  googleMapsClient = new Client({});
+  console.log('Google Maps API client initialized');
+} else {
+  console.log('Google Maps API key not configured or invalid');
 }
 
 // Helper function to check if a model is an O-series reasoning model
@@ -1261,6 +1271,76 @@ app.get('/api/travel-instructions', rateLimiter, async (req, res) => {
       message: isProduction ? 'Unable to retrieve travel information at this time.' : error.message,
       retryAfter,
       timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Google Maps distance calculation endpoint
+app.post('/api/maps/distance', rateLimiter, async (req, res) => {
+  try {
+    const { origin, destination, mode = 'driving' } = req.body;
+    
+    if (!origin || !destination) {
+      return res.status(400).json({
+        error: 'Both origin and destination are required'
+      });
+    }
+
+    if (!googleMapsClient) {
+      return res.status(503).json({
+        error: 'Google Maps service is not configured'
+      });
+    }
+
+    console.log(`[Maps API] Calculating distance from ${origin} to ${destination} via ${mode}`);
+
+    // Call Google Maps Distance Matrix API
+    const response = await googleMapsClient.distancematrix({
+      params: {
+        origins: [origin],
+        destinations: [destination],
+        mode: mode,
+        units: 'metric',
+        key: process.env.GOOGLE_MAPS_API_KEY
+      }
+    });
+
+    if (response.data.status !== 'OK') {
+      throw new Error(`Google Maps API error: ${response.data.status}`);
+    }
+
+    const result = response.data.rows[0]?.elements[0];
+    
+    if (!result || result.status !== 'OK') {
+      return res.status(404).json({
+        error: 'Could not calculate distance between the specified locations',
+        details: result?.status || 'Unknown error'
+      });
+    }
+
+    // Extract distance and duration
+    const distanceData = {
+      distance: {
+        text: result.distance.text,
+        value: result.distance.value // meters
+      },
+      duration: {
+        text: result.duration.text,
+        value: result.duration.value // seconds
+      },
+      origin: response.data.origin_addresses[0],
+      destination: response.data.destination_addresses[0],
+      mode: mode
+    };
+
+    console.log(`[Maps API] Distance calculated successfully: ${distanceData.distance.text}`);
+
+    res.json(distanceData);
+  } catch (error) {
+    console.error('[Maps API] Error calculating distance:', error);
+    res.status(500).json({
+      error: 'Failed to calculate distance',
+      message: error.message
     });
   }
 });
