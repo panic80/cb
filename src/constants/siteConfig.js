@@ -2,7 +2,7 @@
 
 export const SITE_CONFIG = {
   // Last update date - Update this when making significant changes
-  LAST_UPDATED: 'December 8, 2024',
+  LAST_UPDATED: 'June 27, 2025',
   
   // Site information
   SITE_NAME: 'G8 Administration Hub',
