@@ -14,6 +14,7 @@ import {
 } from '@heroicons/react/24/solid';
 import '../styles/landing.css';
 import '../styles/sticky-footer.css';
+import { SITE_CONFIG, getCopyrightText, getLastUpdatedText } from '../constants/siteConfig';
 
 // shadcn/ui components
 import { Button } from '@/components/ui/button';
@@ -212,8 +213,8 @@ export default function AdminToolsPage() {
                 </div>
               </nav>
               <div className="text-center text-xs text-[var(--text)] opacity-50">
-                <p>&copy; {new Date().getFullYear()} G8 Administration Hub. All rights reserved. Not affiliated with DND or CAF.</p>
-                <p className="mt-1">Last updated: December 6, 2024</p>
+                <p>{getCopyrightText()}</p>
+                <p className="mt-1">{getLastUpdatedText()}</p>
               </div>
             </div>
 
@@ -244,8 +245,8 @@ export default function AdminToolsPage() {
                 </div>
               </nav>
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 text-xs sm:text-sm text-[var(--text)] opacity-50">
-                <p>&copy; {new Date().getFullYear()} G8 Administration Hub. All rights reserved. Not affiliated with DND or CAF.</p>
-                <p>Last updated: December 6, 2024</p>
+                <p>{getCopyrightText()}</p>
+                <p>{getLastUpdatedText()}</p>
               </div>
             </div>
           </div>

@@ -18,6 +18,7 @@ import {
 } from '@heroicons/react/24/solid';
 import '../styles/sticky-footer.css';
 import '../styles/landing.css';
+import { SITE_CONFIG, getCopyrightText, getLastUpdatedText } from '../constants/siteConfig';
 
 const useIntersectionObserver = (options = {}) => {
   const [isVisible, setIsVisible] = useState(false);
@@ -313,24 +314,30 @@ export default function LandingPage() {
                     </div>
                   </Link>
 
-                  {/* Resource Library Card */
-                  <Link
-                    to="/admin-tools"
-                    className={`group card-hover glass rounded-2xl p-4 sm:p-6 md:p-8 transition-opacity duration-1000 transform w-full md:min-w-[350px] ${
+                  {/* Resource Library Card */}
+                  <div
+                    className={`relative glass rounded-2xl p-4 sm:p-6 md:p-8 transition-opacity duration-1000 transform w-full md:min-w-[350px] cursor-not-allowed ${
                       featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
                     }`}
                     style={{ transitionDelay: '0.8s' }}
-                    aria-label="Access Resource Library"
+                    aria-label="Resource Library - Under Update"
                   >
-                    <div className="flex flex-col items-center text-center space-y-4 sm:space-y-6">
+                    {/* Overlay for disabled state */}
+                    <div className="absolute inset-0 bg-[var(--background)]/50 rounded-2xl z-10 flex items-center justify-center">
+                      <div className="bg-[var(--primary)] text-white px-4 py-2 rounded-full font-medium text-sm shadow-lg animate-pulse">
+                        🚧 Under Update
+                      </div>
+                    </div>
+                    
+                    <div className="flex flex-col items-center text-center space-y-4 sm:space-y-6 opacity-50">
                       <div className="relative">
-                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl transform group-hover:scale-150 transition-transform duration-300" />
-                        <div className="relative transform transition-all duration-300 group-hover:scale-110">
+                        <div className="absolute inset-0 bg-[var(--primary)] opacity-20 rounded-full blur-xl" />
+                        <div className="relative">
                           <BookOpenIcon className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 text-[var(--primary)]" aria-hidden="true" />
                         </div>
                       </div>
                       <div className="space-y-3 sm:space-y-4">
-                        <h3 className="text-lg sm:text-xl md:text-2xl font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition-colors duration-300">
+                        <h3 className="text-lg sm:text-xl md:text-2xl font-semibold text-[var(--text)]">
                           Resource Library
                         </h3>
                         <p className="text-sm sm:text-base text-[var(--text)] opacity-80 leading-relaxed">
@@ -338,7 +345,7 @@ export default function LandingPage() {
                         </p>
                       </div>
                     </div>
-                  </Link>
+                  </div>
                 </div>
               </div>
             </section>
@@ -373,7 +380,7 @@ export default function LandingPage() {
                     </div>
                   </nav>
                   <div className="text-center text-xs text-[var(--text)] opacity-50 mt-1">
-                    <p>&copy; {new Date().getFullYear()} G8 Administration Hub</p>
+                    <p>{getCopyrightText()}</p>
                   </div>
                 </div>
                 
@@ -404,8 +411,8 @@ export default function LandingPage() {
                     </div>
                   </nav>
                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 text-xs sm:text-sm text-[var(--text)] opacity-50">
-                    <p>&copy; {new Date().getFullYear()} G8 Administration Hub. All rights reserved. Not affiliated with DND or CAF.</p>
-                    <p>Last updated: June 6, 2025</p>
+                    <p>{getCopyrightText()}</p>
+                    <p>{getLastUpdatedText()}</p>
                   </div>
                 </div>
               </div>
